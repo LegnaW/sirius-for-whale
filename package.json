@@ -1,0 +1,37 @@
+{
+  "name": "sirius-for-whale",
+  "version": "0.1.0",
+  "private": true,
+  "description": "让 DSH（DeepSeek Harness）通过 sirius-bridge 操作一台真实的 Minecraft 客户端：看得见画面、拿得动背包、放得下方块。",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.2 <0.3.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "skills",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "docs/PLUGIN.md",
+    "persona.example.txt",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

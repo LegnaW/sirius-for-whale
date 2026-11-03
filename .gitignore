@@ -1,0 +1,10 @@
+# 依赖与产物
+node_modules/
+*.log
+
+# 本地探针/临时物
+.tmp/
+
+# 本机路径、环境、身份与启动方法（永不入库）
+local.md
+persona.txt

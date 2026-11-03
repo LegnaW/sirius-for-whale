@@ -1,0 +1,63 @@
+# ============================================================================
+# sirius-for-whale —— bundle patch
+# ============================================================================
+# 两件事：
+#   ① 在 Host 平面挂载插件本体（工具注册 + 连接管理 + 提示词注入都在这里，
+#      因为连接是进程级唯一的：一台真实 MC 客户端只有一个 bridge 端口）；
+#   ② 声明一个 agent preset「Sirius」——窄工具面，专供"玩 MC"的会话使用。
+#
+# 工具可见性：插件在 agent/created 里对**非 sirius** preset 的 agent 做
+# tools.restrict({ deny: [...] })，因此标准会话看不到 sirius_* 工具。
+# ============================================================================
+- insert:
+    - id: sirius-for-whale
+      name: sirius-for-whale
+      config:
+        # 连接地址；config 里若从 toml 读到 port，会以 toml 为准。
+        url: ws://127.0.0.1:8765
+        # 本机游戏实例目录（版本隔离时 config 在版本目录内）。
+        # 公开默认留空；在本机配置中填写实际实例，或改用 tokenPath/discoverDirs。
+        gameDir: ''
+        # 有多个客户端实例时追加（每个目录下找 config/sirius_bridge.toml；
+        # 连接时会逐个试 token，被 1008 拒的那个自动跳过）
+        discoverDirs: []
+
+    - id: preset-sirius
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: sirius
+        name: Sirius
+        description: 进入真实 Minecraft 客户端（经 sirius-bridge）：看画面、读背包、走位、放置，专注游玩。
+        order: 7
+        plugins:
+          # 人设不在这里：由插件从仓库根的 `persona.txt` 注入（可热改，不必动 YAML）。
+          # 见 src/persona.mjs —— 按 mtime 加载，改完下一条消息就生效。
+          #
+          # 🔴 2026-11-01 事故：往这个列表里加 dsh-tool-fs / -fs-search / -subagent /
+          #    -subagent-control 之后，preset 整体激活失败，DSH 里「Sirius」模式直接消失。
+          #    新插件一次只加一个，重启后确认「Sirius」还在选单里（见 notes/2026-11-01-preset-breakage.md）。
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

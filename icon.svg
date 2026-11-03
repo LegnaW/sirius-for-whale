@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Sirius for Whale">
+  <rect width="48" height="48" rx="10" fill="#12324f"/>
+  <path d="M13 29c6.4 0 9.6-4.2 9.6-9.4 0 5.2 3.2 9.4 9.6 9.4-3.2 1.1-6.4 3.2-9.6 6.4-3.2-3.2-6.4-5.3-9.6-6.4z" fill="#e8f4ff"/>
+  <g fill="none" stroke="#5ec8ff" stroke-width="2.4" stroke-linecap="round">
+    <path d="M29.5 13.5a10 10 0 0 1 5.8 8.7"/>
+    <path d="M33 9.5a15 15 0 0 1 8.6 12.6"/>
+  </g>
+</svg>
