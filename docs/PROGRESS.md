@@ -10,7 +10,7 @@
 - `ctx.plugins.start/wait/stop` 支持已注册插件编排，最多 8 层，循环拒绝，父结束级联取消，子实例优先级不高于父实例。
 - ActionScheduler 实现 movement/world_edit/interaction/inventory/combat 资源租约、等待与高优先级抢占；preempted 不冒充完成。`sirius_stop` 取消全部插件和脚本 run。
 - 最新 `npm test`：**281 passed / 0 failed**，Whale `git diff --check` 通过。
-- 公开发布准备：README 已精简，完整说明移至 `docs/PLUGIN.md`；本机路径和真实身份示例已脱敏，`persona.txt` 与 `local.md` 均被忽略，仅发布 `persona.example.txt`。已用 LegnaW 创建公开空仓库 `LegnaW/sirius-for-whale` 并配置 origin，**尚未 push**。旧提交历史未改写，仍含早期本机路径/身份示例，首次发布应使用新历史或另行确认历史清洗。
+- 公开发布状态：README 已精简，完整说明移至 `docs/PLUGIN.md`；本机路径和真实身份示例已脱敏，`persona.txt` 与 `local.md` 均被忽略，仅发布 `persona.example.txt`。已用 LegnaW 创建公开仓库 `LegnaW/sirius-for-whale`，并以无旧父提交的新 `main` 历史推送；旧本地 `dev/master` 未推送，未进入远程仓库。
 - init 会把全部 core 源码和 manifest 索引生成到会话 `scripts/example/`；副本不参与加载，修改无效，下次 init 覆盖。新增官方 `sirius-plugin-development` Skill，覆盖 ctx API、事件、manifest、嵌套、checkpoint 和自定义插件配置；`sirius-builtins` 继续负责内置参数。规格见 `docs/sessions/2026-11-04-plugin-reference-and-development-skill.md`。
 - 会话级工作区配置已实现：`sirius_init` 初始化并挂载 `scripts/`、`config/plugins.json`、`state/`；`sirius_plugin config/validate/submit` 支持预检和差异应用。用户脚本、persistent enabled/args、checkpoint 按会话隔离，非法提交零副作用，未变服务不重启，子代理沿用主会话目录。规格见 `docs/sessions/2026-11-04-session-workspace-config.md`；完整 DSH 真机待验。
 - 新增 `core.inventory_move` 和 `core.container_exchange`，共 **13 个**内置。复用现有桥协议和当前打开的界面，支持按玩家槽位搬运和按物品跨槽存取。DSH 真机待验，见 `docs/sessions/2026-11-04-inventory-transfer.md`。
