@@ -8,11 +8,15 @@ export const craftCode = `export default async function(ctx) {
   }
   const resultItem = itemId(a.result)
   const batches = Number(a.count ?? 1)
+  const station = a.station ?? 'table'
+  const inventoryStation = station === 'inventory'
+  const gridSize = inventoryStation ? 4 : 9
   if (!resultItem || !Array.isArray(a.grid) || ![4, 9].includes(a.grid.length)
+      || !['inventory', 'table'].includes(station) || (inventoryStation && a.grid.length !== 4)
       || !Number.isInteger(batches) || batches < 1 || batches > 64) {
     return { result: 'invalid_recipe', reason: '需要 result、4/9 格 grid 和 1..64 的整数 count' }
   }
-  const layout = a.grid.length === 4
+  const layout = !inventoryStation && a.grid.length === 4
     ? [a.grid[0], a.grid[1], null, a.grid[2], a.grid[3], null, null, null, null]
     : a.grid
   const recipe = []
@@ -27,8 +31,8 @@ export const craftCode = `export default async function(ctx) {
     recipe.push({ slot, item, count })
   }
   if (!recipe.length) return { result: 'invalid_recipe', reason: 'grid 不能为空' }
-  let table = { x: a.x, y: a.y, z: a.z }
-  if (![table.x, table.y, table.z].every(Number.isFinite)) {
+  let table = inventoryStation ? null : { x: a.x, y: a.y, z: a.z }
+  if (table && ![table.x, table.y, table.z].every(Number.isFinite)) {
     const range = Math.max(1, Math.min(8, Number(a.range ?? 4) || 4))
     const found = await call('world.query', { type: 'blocks', range, filter: ['minecraft:crafting_table'] })
     if (!found.blocks?.length) return { result: 'table_not_found', range }
@@ -64,19 +68,36 @@ export const craftCode = `export default async function(ctx) {
   if (missing.length) return { result: 'missing_ingredients', missing, table, resume_from: a.resume_from ?? null }
   let opened = false
   let recoveredGrid = false
+  const crafted = []
+  const poll = async (read, done) => {
+    const deadline = Date.now() + 2000
+    for (;;) {
+      const value = await read()
+      if (done(value) || Date.now() >= deadline) return value
+      await ctx.sleep(100)
+    }
+  }
   try {
-    let used = await call('use', { ...table, hand: 'main' })
-    if (used.result !== 'screen_opened') return { result: 'open_failed', table, evidence: used }
-    opened = true
+    if (!inventoryStation) {
+      const used = await call('use', { ...table, hand: 'main' })
+      if (used.result !== 'screen_opened') return { result: 'open_failed', table, evidence: used }
+      opened = true
+    }
     let gui = await call('getGuiState', {})
     const craftSlots = () => (gui.slots ?? []).filter((slot) => slot.role === 'crafting')
       .sort((left, right) => left.index - right.index)
-    if (craftSlots().length !== 9) return { result: 'not_crafting_table', table, screen: gui.screen_class }
+    const screen = gui.screen_class
+    const gridIndices = craftSlots().map(slot => slot.index).join(',')
+    const sameGrid = () => gui.screen_class === screen && craftSlots().map(slot => slot.index).join(',') === gridIndices
+    if (craftSlots().length !== gridSize || (inventoryStation && screen !== 'InventoryScreen')) {
+      return { result: inventoryStation ? 'inventory_not_open' : 'not_crafting_table', table, screen }
+    }
     if (craftSlots().some((slot) => slot.item)) {
+      if (inventoryStation) return { result: 'grid_not_empty', station }
       await call('container.close', {})
       opened = false
       recoveredGrid = true
-      used = await call('use', { ...table, hand: 'main' })
+      const used = await call('use', { ...table, hand: 'main' })
       if (used.result !== 'screen_opened') return { result: 'reopen_failed', table, recovered_grid: recoveredGrid }
       opened = true
       gui = await call('getGuiState', {})
@@ -84,19 +105,20 @@ export const craftCode = `export default async function(ctx) {
         return { result: 'grid_not_empty', table, recovered_grid: recoveredGrid }
       }
     }
-    const crafted = []
     for (let batch = startBatch; batch < batches; batch += 1) {
       gui = await call('getGuiState', {})
+      if (!sameGrid()) return { result: 'window_changed', crafted, station, table }
       const empty = (gui.slots ?? []).find((slot) => ['player', 'hotbar'].includes(slot.role) && !slot.item)
       if (!empty) return { result: 'inventory_full', crafted, table, recovered_grid: recoveredGrid }
       const slots = craftSlots()
-      if (slots.length !== 9 || slots.some((slot) => slot.item)) {
+      if (slots.some((slot) => slot.item)) {
         return { result: 'grid_not_empty', crafted, table, recovered_grid: recoveredGrid }
       }
       const resultSlot = (gui.slots ?? []).find((slot) => slot.role === 'result')
       if (!resultSlot) return { result: 'no_result_slot', crafted, table }
       for (const cell of recipe) {
         gui = await call('getGuiState', {})
+        if (!sameGrid()) return { result: 'window_changed', crafted, station, table }
         const source = (gui.slots ?? []).find((slot) => ['player', 'hotbar'].includes(slot.role)
           && slot.item === cell.item && slot.count >= cell.count)
         if (!source) {
@@ -109,19 +131,28 @@ export const craftCode = `export default async function(ctx) {
           return { result: 'transfer_failed', crafted, cell, evidence: moved, table }
         }
       }
-      gui = await call('getGuiState', {})
-      const produced = (gui.slots ?? []).find((slot) => slot.role === 'result')
+      const readResult = async () => {
+        gui = await call('getGuiState', {})
+        if (!sameGrid()) return { changed: true }
+        const slot = (gui.slots ?? []).find(candidate => candidate.role === 'result' && candidate.index === resultSlot.index)
+        return slot ?? { changed: true }
+      }
+      const produced = await poll(readResult, slot => slot.changed || slot.item === resultItem)
+      if (produced.changed) return { result: 'window_changed', crafted, station, table }
       if (!produced?.item || produced.item !== resultItem) {
         return {
-          result: 'result_mismatch', crafted, expected: resultItem,
+          result: produced?.item ? 'result_mismatch' : 'result_not_ready', crafted, expected: resultItem,
           actual: produced?.item ?? null, table, recovered_grid: recoveredGrid,
         }
       }
       const expectedCount = produced.count
       const before = (await call('inventory', {})).counts?.[resultItem] ?? 0
-      await call('container.clickSlot', { slot: resultSlot.index, button: 0, mode: 'quick_move' })
-      await ctx.sleep(120)
-      const after = (await call('inventory', {})).counts?.[resultItem] ?? 0
+      const taken = await call('container.clickSlot', { slot: resultSlot.index, button: 0, mode: 'quick_move' })
+      if (taken.result !== 'clicked' || taken.screen_class !== screen || taken.carried_after?.count > 0) {
+        return { result: 'output_unconfirmed', crafted, station, table, evidence: taken }
+      }
+      const after = await poll(async () => (await call('inventory', {})).counts?.[resultItem] ?? 0,
+        count => count - before >= expectedCount)
       const gained = after - before
       if (gained !== expectedCount) {
         return {
@@ -137,11 +168,15 @@ export const craftCode = `export default async function(ctx) {
       produced: crafted.reduce((sum, entry) => sum + entry.count, 0),
       inventory_before: initialResultCount,
       inventory_after: initialResultCount + crafted.reduce((sum, entry) => sum + entry.count, 0),
-      table, recovered_grid: recoveredGrid, resume_from: a.resume_from ?? null,
+      station, table, recovered_grid: recoveredGrid, resume_from: a.resume_from ?? null,
     }
   } catch (error) {
-    return { result: ctx.signal.aborted ? 'interrupted' : 'failed', reason: String(error?.message ?? error), table }
+    return { result: ctx.signal.aborted ? 'interrupted' : 'failed', reason: String(error?.message ?? error), crafted, station, table }
   } finally {
-    if (opened) await call('container.close', {}).catch(() => {})
+    if (opened) {
+      await call('getGuiState', {}).then(gui => {
+        if ((gui.slots ?? []).filter(slot => slot.role === 'crafting').length === 9) return call('container.close', {})
+      }).catch(() => {})
+    }
   }
 }`

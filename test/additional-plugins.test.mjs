@@ -9,10 +9,13 @@ function environment (t, { position = () => ({ x: 0, y: 64, z: 0 }), followState
   const calls = []
   let moved = false
   let closed = false
+  let pendingResult = 0
+  let pendingOutput = null
+  const screen = craft?.playerGrid ? 'InventoryScreen' : 'CraftingScreen'
   const inventory = { 'minecraft:oak_log': 2, 'minecraft:oak_planks': craft?.initialPlanks ?? 0 }
   const slots = craft ? [
     { index: 0, role: 'result', item: null, count: 0 },
-    ...Array.from({ length: 9 }, (_, index) => ({ index: index + 1, role: 'crafting', item: null, count: 0 })),
+    ...Array.from({ length: craft.playerGrid ? 4 : 9 }, (_, index) => ({ index: index + 1, role: 'crafting', item: null, count: 0 })),
     { index: 10, role: 'player', item: 'minecraft:oak_log', count: 2 },
     { index: 11, role: 'player', item: null, count: 0 },
   ] : []
@@ -28,8 +31,17 @@ function environment (t, { position = () => ({ x: 0, y: 64, z: 0 }), followState
       if (method === 'baritone.status') return { state: baritoneState, follow: followState }
       if (method === 'world.query') return { blocks: [{ x: 1, y: 64, z: 0, block: 'minecraft:crafting_table' }] }
       if (method === 'use') return { result: 'screen_opened' }
-      if (method === 'inventory') return { counts: { ...inventory } }
-      if (method === 'getGuiState') return { screen_class: 'CraftingScreen', slots: slots.map((slot) => ({ ...slot })) }
+      if (method === 'inventory') {
+        if (pendingOutput && pendingOutput.reads-- === 0) {
+          inventory[pendingOutput.item] = (inventory[pendingOutput.item] ?? 0) + pendingOutput.count
+          pendingOutput = null
+        }
+        return { counts: { ...inventory } }
+      }
+      if (method === 'getGuiState') {
+        if (pendingResult && --pendingResult === 0) Object.assign(slots[0], { item: craft.produced, count: 4 })
+        return { screen_class: screen, slots: slots.map((slot) => ({ ...slot })) }
+      }
       if (method === 'container.transfer') {
         const from = slots.find((slot) => slot.index === params.from_slot)
         const to = slots.find((slot) => slot.index === params.to_slot)
@@ -38,17 +50,16 @@ function environment (t, { position = () => ({ x: 0, y: 64, z: 0 }), followState
         from.count -= params.count
         if (from.count === 0) from.item = null
         if (slots.filter((slot) => slot.role === 'crafting').some((slot) => slot.item)) {
-          slots[0].item = craft.produced
-          slots[0].count = 4
+          pendingResult = craft.resultDelay ? 3 : 1
         }
         return { result: 'transferred' }
       }
       if (method === 'container.clickSlot') {
         const produced = slots[0]
-        inventory[produced.item] = (inventory[produced.item] ?? 0) + produced.count
+        pendingOutput = { item: produced.item, count: produced.count, reads: craft.resultDelay ? 2 : 0 }
         produced.item = null
         produced.count = 0
-        return { result: 'clicked' }
+        return { result: 'clicked', screen_class: screen, carried_after: { item: null, count: 0 } }
       }
       if (method === 'container.close') { closed = true; return { result: 'closed' } }
       return { result: 'ok' }
@@ -141,6 +152,22 @@ test('core.craft 按明确配方合成并核对背包增量，结束后关窗', 
   assert.equal(closed(), true)
 })
 
+test('core.craft 在背包 2×2 等待结果及库存回执，只取一次并保留界面', async (t) => {
+  const { manager, calls, inventory, closed } = environment(t, {
+    craft: { playerGrid: true, resultDelay: true, produced: 'minecraft:oak_planks' },
+  })
+  const run = await manager.start('core.craft', {
+    args: { station: 'inventory', grid: [null, null, null, 'oak_log'], result: 'oak_planks' },
+  })
+  const done = await manager.wait(run.run_id, 4000)
+  assert.equal(done.result.result, 'crafted')
+  assert.equal(inventory['minecraft:oak_planks'], 4)
+  assert.equal(calls.find(call => call.method === 'container.transfer').params.to_slot, 4)
+  assert.equal(calls.filter(call => call.method === 'container.clickSlot').length, 1)
+  assert.equal(calls.some(call => ['world.query', 'use'].includes(call.method)), false)
+  assert.equal(closed(), false)
+})
+
 test('core.craft 缺料时不动工作台，结果不符时关窗清理', async (t) => {
   const missing = environment(t, { craft: { produced: 'minecraft:oak_planks' } })
   const missingRun = await missing.manager.start('core.craft', {
@@ -154,7 +181,7 @@ test('core.craft 缺料时不动工作台，结果不符时关窗清理', async 
   const mismatchRun = await mismatch.manager.start('core.craft', {
     args: { grid: ['oak_log', null, null, null], result: 'oak_planks' },
   })
-  const mismatchDone = await mismatch.manager.wait(mismatchRun.run_id, 2000)
+  const mismatchDone = await mismatch.manager.wait(mismatchRun.run_id, 4500)
   assert.equal(mismatchDone.result.result, 'result_mismatch')
   assert.equal(mismatchDone.result.actual, 'minecraft:oak_button')
   assert.equal(mismatch.closed(), true)

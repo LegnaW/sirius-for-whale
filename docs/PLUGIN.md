@@ -153,7 +153,9 @@ Agent 编辑后调用 `sirius_plugin(action:"validate")` 完整预检，再由�
 
 官方 Skill 通过 DSH `ctx.skills.register` 注册：`sirius-builtins` 查询全部内置插件的参数、示例、返回词表与安全约束；`sirius-plugin-development` 教导 user.* 脚本结构、ctx API、事件定义、生命周期、嵌套编排、checkpoint 和会话配置。编写自定义插件时使用后者。
 
-`core.craft` 不自动查询配方，也不递归推导中间产物。Agent 必须先通过 JEI、物品提示、文档或实验研究配方，再提供 4/9 格 `grid`、预期 `result` 和 1..64 批 `count`；空项为 null，非空项为物品 id 或 `{item,count}`。插件指定或搜索工作台，检查缺料与空位，精确移动每批材料，结果槽不符即失败，quick_move 后核对背包增量，结束时关窗收回格内材料。允许破坏的 `baritone.goto/follow` 同时持有 movement 和 world_edit 租约。
+`core.craft` 执行已确认的配方，提供 4/9 格 `grid`、预期 `result` 和 1..64 批 `count`。空项为 null，非空项为物品 ID 或 `{item,count}`。默认 `station:"table"`，搜索或打开工作台，四格映射到左上角，结束时关窗。用 `station:"inventory"` 时先打开生存背包，传四格配方，执行后保留界面。背包格已有材料时返回 `grid_not_empty`。
+
+两种合成都在放料后有界轮询结果槽。截止时为空返回 `result_not_ready`，结果为其他物品则返回 `result_mismatch`。核对预期物品后只点击取出一次，再轮询背包增量。允许破坏的 `baritone.goto/follow` 同时持有 movement 和 world_edit 租约。
 
 ## 设计取舍（踩过的坑写在这里）
 

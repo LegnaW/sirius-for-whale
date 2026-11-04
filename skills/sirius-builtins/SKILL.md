@@ -25,7 +25,7 @@ description: 使用 Sirius 官方 core.* 插件，包括移动、战斗、合成
 ## 战斗与合成
 
 - `core.attack`：目标可用 uuid/name/radius。默认 until="hits"，用 count 控制次数；until="dead" 持续攻击同一目标，另支持 interval_ms、wait_cooldown、max_seconds、min_health。不会自动追怪。结果包括 hit/dead/gone/out_of_range/low_health/timeout/interrupted/target_unstable。
-- `core.craft`：只执行已经研究确认的配方，不自动查询或推导配方。模组物品先查 JEI、物品提示、文档或实验。参数 `{grid,result,count?,x?,y?,z?,range?}`：grid 为4格或9格，空项 null，非空项为物品 id 或 `{item,count}`；4格映射到工作台左上2×2。count 是批数1..64。插件搜索或打开工作台、检查缺料、逐批转移、核对结果和背包增量并关窗。结果包括 crafted/missing_ingredients/result_mismatch/inventory_full/table_not_found/already_completed/resume_conflict。
+- `core.craft` 执行已确认的配方。参数 `{station?,grid,result,count?,x?,y?,z?,range?}`。默认 `station:"table"`，搜索或打开工作台，四格配方映射到左上角。用 `station:"inventory"` 时先打开生存背包，传四格 `grid`，结束后保留界面。空项用 null，非空项为物品 ID 或 `{item,count}`。count 为 1..64 批。脚本等待结果槽及背包增量，结果槽等到截止仍为空时返回 `result_not_ready`。
 
 示例：一根原木合成一批木板：
 
