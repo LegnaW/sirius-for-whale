@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { candidateTokenPaths, findBridgeCredentials, findBridgeTokenCandidates, normalizeConfig, parseBridgeToml } from '../src/config.mjs'
+import { candidateTokenPaths, findBridgeCredentials, findBridgeTokenCandidates, findBridgeTokenCandidatesForGameDir, normalizeConfig, parseBridgeToml } from '../src/config.mjs'
 
 const SAMPLE = `# sirius-bridge configuration
 # token: shared secret
@@ -110,4 +110,22 @@ test('findBridgeTokenCandidates：一个来源都没有时返回空数组（不�
     { APPDATA: join(tmpdir(), 'sfw-no-such-appdata-2') },
   )
   assert.deepEqual(list, [])
+})
+
+test('init game_dir 只从指定实例读取 token 和端口，缺失配置提前拒绝', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sfw-init-game-dir-'))
+  try {
+    mkdirSync(join(dir, 'config'), { recursive: true })
+    writeFileSync(join(dir, 'config', 'sirius_bridge.toml'), 'port = 9123\ntoken = "init-token"\n')
+    const resolved = findBridgeTokenCandidatesForGameDir(dir)
+    assert.equal(resolved.gameDir, dir)
+    assert.equal(resolved.candidates.length, 1)
+    assert.equal(resolved.candidates[0].token, 'init-token')
+    assert.equal(resolved.candidates[0].port, 9123)
+    assert.throws(() => findBridgeTokenCandidatesForGameDir(join(dir, 'missing')), /不存在 config\/sirius_bridge.toml/)
+    writeFileSync(join(dir, 'config', 'sirius_bridge.toml'), 'port = 9123\ntoken = ""\n')
+    assert.throws(() => findBridgeTokenCandidatesForGameDir(dir), /没有有效 token/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

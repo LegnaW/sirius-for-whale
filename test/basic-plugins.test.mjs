@@ -63,6 +63,18 @@ test('core.input 支持键名和 GUI 坐标换算，count/hold 互斥', async (t
   assert.equal((await manager.wait(invalid.run_id, 2000)).status, 'failed')
 })
 
+test('core.input 在协议 1.13 直接发送 GUI 坐标', async (t) => {
+  const { manager, calls } = environment(t, {
+    onCall: (method) => method === 'capabilities/list' ? { protocol_version: '1.13' } : undefined,
+  })
+  const at = { x: 10.5, y: 20 }
+  const click = await manager.start('core.input', { args: { click: { at, button: 'right' } } })
+  assert.equal((await manager.wait(click.run_id, 2000)).result.result, 'clicked')
+  assert.deepEqual(calls.filter(({ method }) => method.startsWith('input.')), [
+    { method: 'input.click', params: { button: 1, count: 1, at } },
+  ])
+})
+
 test('库存内置按实际菜单槽搬运，跨槽存取，读回异常时停止', async (t) => {
   const stone = 'minecraft:cobblestone'
   const iron = 'minecraft:iron_ingot'
@@ -169,15 +181,16 @@ test('core.walk 到位后复核停稳位置并恢复安全设置', async (t) => 
   let moved = false
   const notices = []
   const { manager, calls } = environment(t, {
-    position: () => moved ? { x: 2, y: 64, z: 0 } : { x: 0, y: 64, z: 0 },
+    position: () => moved ? { x: -0.2, y: 65, z: 0.5 } : { x: -0.2, y: 64, z: 0.5 },
     notify: (text) => notices.push(text),
     onCall: (method) => { if (method === 'baritone.goto') moved = true },
   })
-  const run = await manager.start('core.walk', { args: { x: 2, z: 0, timeout_ms: 5000 } })
+  const run = await manager.start('core.walk', { args: { x: -0.2, y: 65, z: 0.5, timeout_ms: 5000 } })
   const done = await manager.wait(run.run_id, 3000)
   assert.equal(done.status, 'succeeded')
   assert.equal(done.result.result, 'arrived')
-  assert.deepEqual(done.result.settled, { x: 2, y: 64, z: 0 })
+  assert.deepEqual(done.result.settled, { x: -0.2, y: 65, z: 0.5 })
+  assert.deepEqual(calls.find(call => call.method === 'baritone.goto').params, { x: -1, y: 65, z: 0, allow_break: false, allow_place: false })
   assert.equal(calls.some((call) => call.method === 'baritone.stop'), true)
   assert.equal(calls.filter((call) => call.method === 'baritone.settings').at(-1).params.allow_break, false)
   assert.ok(notices.some((text) => text.includes('walk arrived')))

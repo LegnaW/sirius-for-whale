@@ -83,7 +83,7 @@ test('tick：进入公差 → 发 #stop 并汇报〔到达〕一次，然后注�
   const { tracker, notes, commands, advance } = makeTracker({
     positions: [{ x: 0, y: 64, z: 0 }, { x: 9.6, y: 64, z: 0 }, { x: 10, y: 64, z: 0 }],
   })
-  tracker.start({ x: 10, z: 0 })
+  tracker.start({ x: 10, z: 0, tolerance: 1.5 })
   await tracker.tick()                 // 起点
   const done = await tracker.tick()    // 进公差
   assert.equal(done.event, 'arrived')
@@ -184,4 +184,17 @@ test('不在游戏里 → 作废并汇报', async () => {
   tracker.start({ x: 1, z: 1 })
   const result = await tracker.tick()
   assert.equal(result.event, 'left_game')
+})
+
+test('默认按负数方块格与高度验收，停稳偏离后只重试一次', async () => {
+  const wrongY = { x: -0.2, y: 64, z: 0.5 }
+  const arrived = { x: -0.2, y: 65, z: 0.5 }
+  const slipped = { x: 0.1, y: 65, z: 0.5 }
+  const { tracker, commands } = makeTracker({ positions: [wrongY, arrived, slipped, arrived, slipped] })
+  assert.equal(tracker.start({ x: -0.2, y: 65, z: 0.5 }).command, '#goto -1 65 0')
+  assert.equal(await tracker.tick(), null)
+  assert.deepEqual(commands, [])
+  assert.equal(await tracker.tick(), null)
+  assert.deepEqual(commands, ['#stop', '#goto -1 65 0'])
+  assert.equal((await tracker.tick()).event, 'off_target')
 })

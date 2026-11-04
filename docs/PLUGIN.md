@@ -65,7 +65,7 @@ plugin_manager(action: "install_bundle", target: "<本地目录>/sirius-for-whal
 
 | 工具 | 干什么 | 关键点 |
 |---|---|---|
-| `sirius_init` | 当前会话独占身体并重置桥连接 | 不重置游戏世界或会话历史；其它会话不再收到游戏唤醒或执行动作，旧会话可再次调用接管 |
+| `sirius_init` | 当前会话独占身体并重置桥连接 | 可传 `game_dir` 指定实例，自动读取其中的 token/端口；不重置游戏世界或会话历史；其它会话不再收到游戏唤醒或执行动作，旧会话可再次调用接管 |
 | `sirius_status` | 连接态 + 就绪判据 | `ready` = 在游戏里 **且** 没有 GUI（`ReceivingLevelScreen` 也算没就绪——真机教训）。**唯一在非 Sirius 会话也可见的工具**（只读自检入口） |
 | `sirius_context` | 血量/饱食/坐标/维度/模式/buff/朝向 | 对应 `getStats` |
 | `sirius_inventory` | 背包结构化读 | 41 槽（容器索引 0-8 / 9-35 / 36-39 / 40），**不用开 GUI** |
@@ -141,7 +141,9 @@ Agent 编辑后调用 `sirius_plugin(action:"validate")` 完整预检，再由�
 
 复杂插件通过 `ctx.plugins.start/wait/stop` 编排其他已注册插件，不能递归 eval。`ctx.plugins.interrupt({mode:'task'})` 可停止低于调用者优先级的任务而不误停 service。宿主记录 parent/root/depth/plugin stack，最多 8 层，拒绝循环调用，父实例结束级联停止子实例；子实例有效优先级不高于父实例。
 
-当前 13 个内置：`core.open_block`、`core.damage_watch`、`core.input`、`core.drop`、`core.inventory_move`、`core.container_exchange`、`core.screenshot`、`core.walk`、`core.dig_to`、`core.follow`、`core.craft`、`core.attack`、`core.tunnel`。damage_watch 默认在首次伤害时打断低优先级 task 并唤醒，不自动反击；attack 支持 hits/dead 和低血收手；tunnel 使用 Builder API 并复核终局。旧硬编码 input/screenshot/walk/follow/attack/tunnel 保留用于 A/B；旧 Watchdog 的 damage 分支已停用，不与内置插件重复唤醒。
+当前 15 个内置：`core.open_block`、`core.damage_watch`、`core.input`、`core.drop`、`core.inventory_move`、`core.container_exchange`、`core.screenshot`、`core.walk`、`core.dig_to`、`core.follow`、`core.craft`、`core.attack`、`core.engage`、`core.gather`、`core.tunnel`。damage_watch 默认在首次伤害时打断低优先级 task 并唤醒，不自动反击；attack 支持 hits/dead 和低血收手；tunnel 使用 Builder API 并复核终局。旧硬编码 input/screenshot/walk/follow/attack/tunnel 保留用于 A/B；旧 Watchdog 的 damage 分支已停用，不与内置插件重复唤醒。
+
+`core.engage {uuid?,radius?,min_health?,max_seconds?}` 显式启动一次单目标交战。范围 4..16 格（默认 12），收手血量 1..20 HP（默认 8，含等于），时限 1..60 秒（默认 30）。候选仅限首版识别的原版敌对类型；未指定 UUID 时按威胁、距离排序，锁定后不换目标。接近阶段限制在起点范围内，连续接近最多 6 秒，禁用破坏和放置。5 格内有至少 3 个已识别威胁时收手。脚本停止后由 Agent 决定是否撤离。受击仍会唤醒，`sirius_stop` 可取消交战。运行期间不要并行发移动或攻击命令。
 
 `core.inventory_move {from_slot,to_slot,count?}` 使用 `sirius_inventory` 的 0..40 槽号，在当前菜单里搬运已暴露的玩家槽。count 可指定 1..128，省略时搬整组，目标须为空或可合并。先由玩家或 `core.input` 打开背包。
 
@@ -333,7 +335,7 @@ Sirius 会话看到的系统提示由**三层**拼起来，各自有各自的位
 
 | 约束 | 现象 | 应对 |
 |---|---|---|
-| **GUI 操作要求窗口在前台** | 失焦时 `input.mouseMove` 会卡到超时（20s），GUI 悬停也不更新 | 点 GUI 前先把游戏窗口切前台；真机验证：切前台后同一调用 9ms 返回 |
+| **失焦 GUI 点击** | 协议 1.13 的坐标点击直接派发到界面 | 悬停与拖拽仍受焦点影响；旧桥沿用鼠标坐标换算 |
 | **修饰键（modifiers）在事件注入下是死的** | 实测三条：`Alt+P`（桥返回 `modifiers=4`）仍触发**原版 P**；**真按住 ALT** + P 也仍触发原版 P；而单按 `Z` 能正常打开 YSM 动画轮盘。原因：Minecraft 的按键匹配读**真实 GLFW 键盘状态**，`keyboardHandler.keyPress(..., mods)` 的 mods 参数不参与匹配 | 需要 "Alt+某键" 的功能（YSM 的 Alt+Y/P/L/B、sophisticatedbackpacks 的 Alt+Z/X、Irons 的法术栏修饰键…）**AI 不可达**，除非在游戏设置里改绑成单键 |
 | **但「两个独立按键」有效** | `W`×800ms 走 2.33 格，`SHIFT`按住 + `W`×800ms 走 1.04 格（A/B=2.23）→ 潜行生效。这是两个按键各自的 `KeyMapping` 状态，不是修饰键语义 | 潜行/疾跑这类"按住一个键"可以用 `sirius_key` 分两次调用 |
 | **无界面时 `mouseMove` 会被拒** | `-32013 mouse_grabbed`（那会转视角） | 转视角用 `look`/`lookAt`；`sirius_click` 的 `at` 只在有界面时可用 |

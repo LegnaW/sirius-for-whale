@@ -2,14 +2,24 @@
 
 最后更新：2026-11-04
 
+- sirius_click 与 core.input 支持 Bridge 协议 1.13 的后台 GUI 坐标点击。真机待验。
+
+- core.gather 在 3、5 或 7 格边长内按当前位置动态挑选同 ID 方块，围绕目标找站位并在批次末尾拾取；从能力数组检测严格挖掘。真机待验。
+
+- 近距离行走统一使用方块格目标与停稳复核，覆盖前台、后台及内置脚本。真机待验。
+
+- 采集使用 Bridge 1.15 的通行和部分支撑面信息，脚下方块由 Bridge 检查实际落点。真机待验。
+
 ## dev：插件注册、生命周期、编排与动作调度已完成垂直验收
 
-- 当前分支为 `dev`，master 上已有未提交工作完整保留，尚未创建提交。
+- 当前发布分支为 `main`，旧 `dev/master` 历史未推送。
+- `sirius_init {game_dir?}` 可在接管时指定 Minecraft 实例并自动读取 token/端口；无效目录在所有权变更前拒绝，reset 后配置新连接。规格见 `docs/sessions/2026-11-04-init-game-dir.md`。
 - `sirius_script` 保持只读；新增 `sirius_plugin`，插件工具总数 **30**。core.* 内置只可启停运行，user.* 可创建、更新、启停和删除。
 - once/task/service、幂等启停、更新/删除清理、持久化恢复、persistent 有界退避与有限条件关闭均已实现。
 - `ctx.plugins.start/wait/stop` 支持已注册插件编排，最多 8 层，循环拒绝，父结束级联取消，子实例优先级不高于父实例。
 - ActionScheduler 实现 movement/world_edit/interaction/inventory/combat 资源租约、等待与高优先级抢占；preempted 不冒充完成。`sirius_stop` 取消全部插件和脚本 run。
-- 最新 `npm test`：**281 passed / 0 failed**，Whale `git diff --check` 通过。
+- 最新 `npm test`：**287 passed / 0 failed**，Whale `git diff --check` 通过。
+- 新增 `core.engage` 单目标近战，内置共 14 个。支持按威胁选敌、有限接近、低血与被围收手及取消追击。DSH 真机待验，见 `docs/sessions/2026-11-04-engage.md`。
 - `core.craft` 支持已打开的生存背包 2×2，并轮询合成结果和背包增量；新版真机待验。见 `docs/sessions/2026-11-04-craft-stations.md`。
 - 公开发布状态：README 已精简，完整说明移至 `docs/PLUGIN.md`；本机路径和真实身份示例已脱敏，`persona.txt` 与 `local.md` 均被忽略，仅发布 `persona.example.txt`。已用 LegnaW 创建公开仓库 `LegnaW/sirius-for-whale`，并以无旧父提交的新 `main` 历史推送；旧本地 `dev/master` 未推送，未进入远程仓库。
 - init 会把全部 core 源码和 manifest 索引生成到会话 `scripts/example/`；副本不参与加载，修改无效，下次 init 覆盖。新增官方 `sirius-plugin-development` Skill，覆盖 ctx API、事件、manifest、嵌套、checkpoint 和自定义插件配置；`sirius-builtins` 继续负责内置参数。规格见 `docs/sessions/2026-11-04-plugin-reference-and-development-skill.md`。

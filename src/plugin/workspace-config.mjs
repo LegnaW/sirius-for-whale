@@ -16,6 +16,7 @@ const CORE_ARG_KEYS = {
   'core.container_exchange': ['deposit', 'withdraw'],
   'core.screenshot': ['tier', 'bbox', 'quality'],
   'core.walk': ['x', 'y', 'z', 'tolerance', 'timeout_ms', 'open_doors'],
+  'core.gather': ['x', 'y', 'z', 'range', 'max_blocks'],
   'core.dig_to': ['x', 'y', 'z', 'tolerance', 'timeout_ms', 'open_doors'],
   'core.follow': ['uuid', 'name', 'follow_radius', 'allow_break', 'allow_place'],
   'core.craft': ['grid', 'result', 'count', 'x', 'y', 'z', 'range'],
@@ -24,6 +25,7 @@ const CORE_ARG_KEYS = {
 }
 
 const INTEGER_ARGS = {
+  'core.gather': { max_blocks: [1, 32] },
   'core.damage_watch': { damageCooldownMs: [0, 300000], observeWindowMs: [0, 60000], maxWakePerMinute: [0, 100] },
   'core.drop': { slot: [0, 40], count: [1, 64] },
   'core.inventory_move': { from_slot: [0, 40], to_slot: [0, 40], count: [1, 128] },
@@ -54,6 +56,9 @@ function assertKeys (value, allowed, label) {
 function validateCoreArgs (id, args) {
   if (!plainObject(args)) throw new Error(`${id}.args 必须是对象`)
   assertKeys(args, CORE_ARG_KEYS[id] ?? [], `${id}.args`)
+  if (id === 'core.gather' && args.range !== undefined && ![3, 5, 7].includes(args.range)) {
+    throw new Error('core.gather.args.range 必须是 3、5 或 7')
+  }
   for (const [key, [min, max]] of Object.entries(INTEGER_ARGS[id] ?? {})) {
     if (args[key] === undefined) continue
     if (!Number.isInteger(args[key]) || args[key] < min || args[key] > max) {

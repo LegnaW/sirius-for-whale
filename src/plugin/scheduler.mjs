@@ -1,3 +1,6 @@
+import { engageId } from './engage.mjs'
+import { gatherId } from './gather.mjs'
+
 export const ACTION_RESOURCES = {
   dig: ['world_edit'],
   place: ['world_edit'],
@@ -38,7 +41,11 @@ export class ActionScheduler {
   }
 
   async acquire (record, method, signal, params = {}) {
-    const resources = this.resourcesFor(method, params)
+    const resources = record.pluginId === engageId && method === 'getStats'
+      ? ['movement', 'combat']
+      : record.pluginId === gatherId && method === 'getStats'
+        ? ['movement', 'world_edit', 'inventory']
+        : this.resourcesFor(method, params)
     if (!resources) throw new Error(`插件不允许调用 ${method}`)
     if (resources.length === 0) return []
     for (;;) {

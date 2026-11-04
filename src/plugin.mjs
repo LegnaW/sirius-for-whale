@@ -9,7 +9,7 @@
  * ============================================================================
  */
 import { BridgeLink, EVENT_KINDS } from './bridge.mjs'
-import { candidateTokenPaths, findBridgeTokenCandidates, normalizeConfig } from './config.mjs'
+import { bridgeConnectionForGameDir, candidateTokenPaths, findBridgeTokenCandidates, normalizeConfig } from './config.mjs'
 import { noticeMessage } from './message.mjs'
 import { section as promptSection } from './prompt.mjs'
 import { createPersonaLoader } from './persona.mjs'
@@ -497,10 +497,15 @@ export function apply (ctx, rawConfig) {
   ticker.unref?.()
   ctx.effect(() => () => clearInterval(ticker), 'sirius-for-whale: subscribe/identity ticker')
 
-  bridgeCache.init = async (exec) => {
+  bridgeCache.init = async (exec, args = {}) => {
     const agentId = String(exec?.agent?.id ?? '')
     const agent = [...siriusAgents].find((candidate) => String(candidate?.id ?? '') === agentId)
     if (!agent) throw new Error('只有已挂载的 Sirius 主会话可以调用 sirius_init')
+    let connectionOverride = null
+    const requestedGameDir = String(args.game_dir ?? '').trim()
+    if (requestedGameDir) {
+      connectionOverride = bridgeConnectionForGameDir(requestedGameDir, config.url)
+    }
     const workspaceConfig = await plugins.prepare({ owner: agentId })
     const previousOwner = ownership.owner
     const owner = ownership.activate(agentId)
@@ -509,6 +514,7 @@ export function apply (ctx, rawConfig) {
     await scripts.retireAll('sirius_init')
     try { await bridgeCache.stopBody?.() } catch { /* 离线时停止命令发不出去，仍继续重置连接 */ }
     await link.reset('sirius_init')
+    if (connectionOverride) link.configure(connectionOverride)
     subscribed = false
     bridgeState.subscribed = false
     bridgeCache.capabilities.protocol = null
@@ -531,6 +537,7 @@ export function apply (ctx, rawConfig) {
       previous_owner: previousOwner,
       protocol: link.protocol ?? null,
       subscribed: true,
+      game_dir: connectionOverride?.gameDir ?? null,
       workspace: plugins.activationInfo?.() ?? workspaceConfig,
     }
   }

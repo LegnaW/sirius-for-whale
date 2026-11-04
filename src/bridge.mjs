@@ -108,6 +108,14 @@ export class BridgeLink {
       : (typeof token === 'string' && token.trim() ? [{ token: token.trim(), path: '(token)' }] : [])
   }
 
+  configure ({ url, tokenCandidates = [] }) {
+    if (this.#socket || this.#connecting) throw new SiriusError('重置连接后才能更换 game_dir 和 token 来源')
+    const list = Array.isArray(tokenCandidates) ? tokenCandidates.filter((c) => c && typeof c.token === 'string' && c.token.trim()) : []
+    this.#url = url
+    this.#candidates = list.map((c) => ({ token: c.token.trim(), path: c.path ?? '(token)' }))
+    this.#resetConnectionState()
+  }
+
   get url () { return this.#url }
   get online () { return Boolean(isOpen(this.#socket) && this.#hello?.ok === true) }
   get protocol () { return this.#hello?.protocol_version }
@@ -422,7 +430,7 @@ export class BridgeLink {
       position: stats?.position ?? null,
       health: stats?.health ?? null,
       food: stats?.food ?? null,
-      // 1.6 增补：窗口焦点是隐形前置条件（GUI 点击要求前台），时间/天气/群系以前只能截屏看。
+      // 1.6 增补：窗口焦点影响原版悬停和拖拽；另外返回时间、天气和群系。
       // 老 jar 没有这些字段 → undefined，调用方要按"未知"处理，不要当成 false。
       windowFocused: typeof stats?.window_focused === 'boolean' ? stats.window_focused : null,
       dayTime: Number.isFinite(stats?.day_time) ? stats.day_time : null,

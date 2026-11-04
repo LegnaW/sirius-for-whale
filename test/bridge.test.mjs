@@ -1,7 +1,11 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { BridgeLink, SiriusError } from '../src/bridge.mjs'
+import { bridgeConnectionForGameDir } from '../src/config.mjs'
 import { FakeWebSocket, serve } from '../support/fake-websocket.mjs'
 
 const CONNECT = (handlers, options) => {
@@ -20,6 +24,36 @@ test('握手：hello → hello_ack 后 online 为真，protocol 透出', async (
   assert.equal(link.online, true)
   assert.equal(link.protocol, '1.4')
   assert.deepEqual(FakeWebSocket.last.sent[0], { type: 'hello', token: 't', protocol_version: '1.4' })
+})
+
+test('configure 在下一次连接使用指定实例的 URL 和 token 来源', async () => {
+  CONNECT({})
+  const link = new BridgeLink({ url: 'ws://old', token: 'old', WebSocketImpl: FakeWebSocket })
+  link.configure({ url: 'ws://new', tokenCandidates: [{ token: 'new-token', path: 'mock/game/config/sirius_bridge.toml' }] })
+  await link.connect()
+  assert.equal(link.url, 'ws://new')
+  assert.deepEqual(link.tokenSources, ['mock/game/config/sirius_bridge.toml'])
+  assert.deepEqual(FakeWebSocket.last.sent[0], { type: 'hello', token: 'new-token', protocol_version: '1.4' })
+})
+
+test('game_dir 到 configure 全链路保留 tokenCandidates 并完成握手', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sfw-init-connection-'))
+  try {
+    mkdirSync(join(dir, 'config'), { recursive: true })
+    writeFileSync(join(dir, 'config', 'sirius_bridge.toml'), 'port = 9123\ntoken = "init-token"\n')
+    const override = bridgeConnectionForGameDir(dir)
+    assert.equal(override.url, 'ws://127.0.0.1:9123')
+    assert.equal(override.tokenCandidates.length, 1)
+    CONNECT({})
+    const link = new BridgeLink({ url: 'ws://old', tokenCandidates: [], WebSocketImpl: FakeWebSocket })
+    link.configure(override)
+    await link.connect()
+    assert.equal(link.url, 'ws://127.0.0.1:9123')
+    assert.equal(link.tokenSources.length, 1)
+    assert.deepEqual(FakeWebSocket.last.sent[0], { type: 'hello', token: 'init-token', protocol_version: '1.4' })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('token 被拒（close 1008）→ 抛带指引的错误', async () => {

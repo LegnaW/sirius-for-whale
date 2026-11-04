@@ -15,7 +15,7 @@ test('官方 Skill 注册全部内置插件用法并可释放', () => {
   })
   assert.equal(registered, true)
   assert.equal(definition.name, OFFICIAL_SKILL_NAME)
-  for (const id of ['open_block', 'damage_watch', 'input', 'screenshot', 'walk', 'dig_to', 'follow', 'craft', 'attack', 'tunnel']) {
+  for (const id of ['open_block', 'damage_watch', 'input', 'screenshot', 'walk', 'dig_to', 'follow', 'craft', 'attack', 'engage', 'tunnel']) {
     assert.ok(definition.content.includes(`core.${id}`), id)
   }
   assert.equal(definition.content.includes('---\nname:'), false)

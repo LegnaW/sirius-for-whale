@@ -113,6 +113,38 @@ export function candidateTokenPaths (config, env = process.env) {
  * 返回 `[{ token, port, path }]`；`path` 只用于诊断（告诉用户 token 来自哪）。
  * 同名 token 只保留第一次出现（先命中先赢）。
  */
+export function findBridgeTokenCandidatesForGameDir (gameDir) {
+  if (typeof gameDir !== 'string' || !gameDir.trim()) throw new Error('game_dir 必须是非空的游戏实例目录')
+  const resolved = resolve(gameDir.trim())
+  const file = bridgeConfigIn(resolved)
+  if (!existsSync(file)) {
+    throw new Error(`game_dir 下不存在 config/sirius_bridge.toml：${resolved}`)
+  }
+  let parsed
+  try {
+    parsed = parseBridgeToml(readFileSync(file, 'utf8'))
+  } catch (error) {
+    throw new Error(`无法读取指定 game_dir 的 bridge 配置：${error.message}`)
+  }
+  if (typeof parsed.token !== 'string' || !parsed.token.trim()) {
+    throw new Error(`指定 game_dir 的 bridge 配置没有有效 token：${file}`)
+  }
+  return {
+    gameDir: resolved,
+    candidates: [{ token: parsed.token.trim(), path: file, port: Number(parsed.port) || undefined }],
+  }
+}
+
+export function bridgeConnectionForGameDir (gameDir, defaultUrl = DEFAULTS.url) {
+  const { gameDir: resolved, candidates } = findBridgeTokenCandidatesForGameDir(gameDir)
+  const port = candidates.find((candidate) => candidate.port)?.port
+  return {
+    gameDir: resolved,
+    url: port ? `ws://127.0.0.1:${port}` : defaultUrl,
+    tokenCandidates: candidates,
+  }
+}
+
 export function findBridgeTokenCandidates (config, env = process.env) {
   const out = []
   const seenToken = new Set()

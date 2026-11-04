@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { toLosslessJSON } from '../json.mjs'
 import { inventoryPluginIds } from '../plugin/inventory.mjs'
+import { engageId } from '../plugin/engage.mjs'
+import { gatherId } from '../plugin/gather.mjs'
+
 import { activeStatus, eventMatches, normalizeEventFilter, READ_METHODS, validateScriptInput } from './contracts.mjs'
+
+const localMovementPlugins = new Set([engageId, gatherId])
 
 const textOf = (value) => {
   if (typeof value === 'string') return value
@@ -147,6 +152,9 @@ export class ScriptRuntime {
       await this.link.call('baritone.stop', {}).catch((error) => this.log(`抢占停止移动失败：${textOf(error)}`))
       await this.link.call('baritone.settings', { allow_break: false, allow_place: false })
         .catch((error) => this.log(`抢占恢复移动设置失败：${textOf(error)}`))
+    } else if (record.localMovementActive) {
+      await this.link.call('baritone.stop', {}, { timeoutMs: this.config.rpcTimeoutMs })
+        .catch((error) => this.log(`内置脚本取消后停止移动失败：${textOf(error)}`))
     }
     this.#finish(record, record.status, { error: reason })
     return this.publicRun(record)
@@ -241,11 +249,18 @@ export class ScriptRuntime {
       } else if (frame.method === 'getGuiState' && record.allowWrite && inventoryPluginIds.includes(record.pluginId)) {
         // Take the same lease as transfer before resolving menu slot indices.
         await this.scheduler.acquire(record, 'container.transfer', record.controller.signal)
+      } else if (frame.method === 'getStats' && record.allowWrite && localMovementPlugins.has(record.pluginId)) {
+        await this.scheduler.acquire(record, frame.method, record.controller.signal)
       }
+      this.#requireActive(record)
+      if (localMovementPlugins.has(record.pluginId) && frame.method === 'baritone.goto') record.localMovementActive = true
       const result = await this.link.call(frame.method, frame.params ?? {}, {
         timeoutMs: this.config.rpcTimeoutMs,
         signal: record.controller.signal,
       })
+      if (localMovementPlugins.has(record.pluginId) && frame.method === 'baritone.stop' && result.result === 'stopped') {
+        record.localMovementActive = false
+      }
       this.#respond(record, frame.id, result)
       return
     }

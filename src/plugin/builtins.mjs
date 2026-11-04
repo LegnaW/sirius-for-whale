@@ -1,14 +1,20 @@
-import { clickAt, keyCode, SPECIAL } from './input.mjs'
+import { clickAt, supportsGuiClick, keyCode, SPECIAL } from './input.mjs'
 import { craftCode } from './craft.mjs'
 import { inventoryCode, inventoryPluginIds } from './inventory.mjs'
 import { attackCode, tunnelCode } from './combat.mjs'
+import { engageCode, engageId } from './engage.mjs'
+import { gatherCode, gatherId } from './gather.mjs'
+import { walkGoal, walkArrived, walkDistance } from '../walk-goal.mjs'
 
 function movementCode (operation, allowBreak) {
   return `export default async function(ctx) {
+    ${walkGoal.toString()}
+    ${walkArrived.toString()}
+    ${walkDistance.toString()}
     const a = ctx.args
-    if (!Number.isFinite(a.x) || !Number.isFinite(a.z)) return { result: 'invalid_target' }
+    if (!Number.isFinite(a.x) || !Number.isFinite(a.z) || (a.y != null && !Number.isFinite(a.y))) return { result: 'invalid_target' }
     const target = { x:a.x, z:a.z, y:a.y ?? null }
-    const tolerance = Math.max(0.5, Math.min(8, a.tolerance ?? 1.5))
+    const tolerance = a.tolerance == null ? null : Math.max(0.5, Math.min(8, a.tolerance))
     const timeoutMs = Math.max(5000, Math.min(180000, a.timeout_ms ?? 60000))
     const allowBreak = ${allowBreak}
     const allowPlace = false
@@ -29,9 +35,11 @@ function movementCode (operation, allowBreak) {
       from = initial.position
       last = from
       await call('baritone.settings', {allow_break:allowBreak, allow_place:allowPlace, chat_control:false})
-      const goal = {x:Math.round(a.x), z:Math.round(a.z), allow_break:allowBreak, allow_place:allowPlace}
-      if (target.y != null) goal.y = Math.round(target.y)
-      await call('baritone.goto', goal)
+      const goal = walkGoal(target)
+      const params = {x:goal.x, z:goal.z, allow_break:allowBreak, allow_place:allowPlace}
+      if (goal.y != null) params.y = goal.y
+      let settleRetries = 0
+      await call('baritone.goto', params)
       let lastProgressAt = startedAt
       let progressPosition = from
       while (Date.now() - startedAt < timeoutMs) {
@@ -41,26 +49,30 @@ function movementCode (operation, allowBreak) {
         try { stats = await call('getStats', {}) } catch { continue }
         const position = stats.position
         if (!position) continue
-        const distance = horizontal(position, target)
-        const atTarget = distance <= tolerance && (target.y == null || Math.abs(position.y-target.y) <= 2)
         last = position
-        if (atTarget) {
-          result = 'arrived'
+        if (walkArrived(position, target, goal, tolerance)) {
           await stop()
           await ctx.sleep(450)
-          settled = (await call('getStats', {}).catch(() => null))?.position ?? position
-          break
+          settled = (await call('getStats', {}).catch(() => null))?.position ?? null
+          if (settled) last = settled
+          if (walkArrived(settled, target, goal, tolerance)) { result = 'arrived'; break }
+          if (!settled || settleRetries++ >= 1 || Date.now() - startedAt >= timeoutMs) { result = 'off_target'; break }
+          await call('baritone.goto', params)
+          progressPosition = settled
+          lastProgressAt = Date.now()
+          continue
         }
-        if (Math.hypot(position.x-progressPosition.x, position.z-progressPosition.z) >= 0.75) {
+        if (walkDistance(position, progressPosition, target.y != null) >= 0.75) {
           progressPosition = position
           lastProgressAt = Date.now()
           continue
         }
         if (Date.now() - lastProgressAt < 4500) continue
         const baritone = await call('baritone.status', {}).catch(() => null)
-        if (allowBreak && ['pathing', 'calculating'].includes(baritone?.state)
+        if ((baritone?.state === 'calculating' || allowBreak && baritone?.state === 'pathing')
             && Date.now() - lastProgressAt < 15000) continue
-        if (horizontal(from, position) < 1) {
+        if (baritone?.state === 'arrived') { result = 'off_target'; break }
+        if (walkDistance(from, position, target.y != null) < 1 || baritone?.state === 'no_path') {
           result = baritone?.state === 'no_path' ? 'no_path' : 'no_progress'
           reason = baritone?.last_line ?? null
           break
@@ -75,7 +87,7 @@ function movementCode (operation, allowBreak) {
             if (used?.result === 'used' || used?.result === 'screen_opened') { opened = true; break }
           }
           if (opened) {
-            await call('baritone.goto', goal)
+            await call('baritone.goto', params)
             progressPosition = position
             lastProgressAt = Date.now()
             continue
@@ -102,6 +114,16 @@ function movementCode (operation, allowBreak) {
 }
 
 export function registerBuiltins (registry, { damageWatch = {} } = {}) {
+  registry.registerBuiltin({
+    id: gatherId, description: '在指定范围内采集同类方块并拾取掉落物',
+    code: gatherCode,
+    manifest: { mode: 'once', priority: 45, timeoutMs: 100000, description: '限量区域采集' },
+  })
+  registry.registerBuiltin({
+    id: engageId, description: '选择一只已知敌对生物，安全接近并近战',
+    code: engageCode,
+    manifest: { mode: 'once', priority: 70, timeoutMs: 80000, description: '有限范围内单目标近战' },
+  })
   for (const [index, id] of inventoryPluginIds.entries()) {
     const description = index === 0 ? '搬运当前界面的玩家背包槽' : '从当前打开的箱子按物品和数量存取'
     registry.registerBuiltin({
@@ -219,6 +241,7 @@ export function registerBuiltins (registry, { damageWatch = {} } = {}) {
     code: `export default async function(ctx) {
       const SPECIAL = ${JSON.stringify(SPECIAL)}
       ${keyCode.toString()}
+      ${supportsGuiClick.toString()}
       ${clickAt.toString()}
       const call = (method, params) => ctx.api.call(method, params)
       if (ctx.args.key != null) {

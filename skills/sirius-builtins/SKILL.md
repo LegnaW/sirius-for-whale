@@ -10,6 +10,7 @@ description: 使用 Sirius 官方 core.* 插件，包括移动、战斗、合成
 ## 移动与交互
 
 - `core.walk`：安全走到 `{x,z,y?,tolerance?,timeout_ms?}`。必定 allow_break=false、allow_place=false，传入 true 也不会改变。结果包括 arrived/no_path/no_progress/blocked/timeout/interrupted。
+- `core.gather {x,y,z,range?,max_blocks?}`：以指定坐标为中心，在 3、5 或 7 格边长的立方体内采集同注册 ID 的方块，默认范围 3。按挖掉的方块计上限（默认 12，最多 32）。需要 Bridge 1.14，先手持适合目标的工具。围绕目标找可站格，移动禁止破坏和放置；结束时集中拾取，返回背包增量与跳过原因。
 - `core.dig_to`：参数同 walk，但必定允许挖除路径障碍且不放置方块。只在明确允许破坏的区域使用；结果字段同样包含 from/to/settled。
 - `core.follow`：`{uuid}` 或 `{name}` 二选一，另可给 follow_radius（默认10）、allow_break/place（默认false）。持续跟随，lost/blocked 会通知；用 disable 或 sirius_stop 停止。
 - `core.tunnel`：`{height,width,depth,timeout_ms?}`，沿当前水平朝向挖隧道。height 2..16、width 1..16、depth 1..256。先确认允许破坏；结果包括 done/blocked/no_path/no_progress/timeout/interrupted。
@@ -23,6 +24,8 @@ description: 使用 Sirius 官方 core.* 插件，包括移动、战斗、合成
 - 两者执行后保留界面。等待终态再操作窗口。回执依据客户端快照，遇到部分结果或未知时，重读界面和背包再决定剩余操作。
 
 ## 战斗与合成
+
+- `core.engage`：显式启动单目标近战，参数 `{uuid?,radius?,min_health?,max_seconds?}`，默认范围 12 格、血量阈值 8 HP、时限 30 秒。省略 UUID 时优先处理已识别的高威胁敌对生物。用 Baritone 安全接近，停止移动后再攻击。低血、被围、目标丢失或接近超时即收手。可用 `sirius_stop` 取消；受击通知照常运行。
 
 - `core.attack`：目标可用 uuid/name/radius。默认 until="hits"，用 count 控制次数；until="dead" 持续攻击同一目标，另支持 interval_ms、wait_cooldown、max_seconds、min_health。不会自动追怪。结果包括 hit/dead/gone/out_of_range/low_health/timeout/interrupted/target_unstable。
 - `core.craft` 执行已确认的配方。参数 `{station?,grid,result,count?,x?,y?,z?,range?}`。默认 `station:"table"`，搜索或打开工作台，四格配方映射到左上角。用 `station:"inventory"` 时先打开生存背包，传四格 `grid`，结束后保留界面。空项用 null，非空项为物品 ID 或 `{item,count}`。count 为 1..64 批。脚本等待结果槽及背包增量，结果槽等到截止仍为空时返回 `result_not_ready`。

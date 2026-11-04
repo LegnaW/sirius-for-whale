@@ -13,9 +13,11 @@ const GLFW = { T: 84, ENTER: 257, ESC: 256 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 import { randomUUID } from 'node:crypto'
+import { supportsGuiClick } from './plugin/input.mjs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { WalkTracker } from './walk.mjs'
+import { walkGoal, walkArrived, walkDistance } from './walk-goal.mjs'
 import { FollowTracker } from './follow.mjs'
 import { toLosslessJSON } from './json.mjs'
 
@@ -214,13 +216,16 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
     name: 'sirius_init',
     description:
       '让当前 Sirius 会话独占这台游戏身体，重置桥连接，并初始化/挂载本会话工作区的 scripts、config 和 state。'
+      + '可传 game_dir 指定 Minecraft 实例目录，DSH 从该目录的 config/sirius_bridge.toml 自动读取 token 和端口，无需提供 token。'
       + '其它会话不会再收到游戏唤醒或执行动作；旧会话之后也可再次调用它来接管，保留各自聊天历史、配置和游戏世界进度。子代理不能调用。',
-    parameters: obj(),
+    parameters: obj({
+      game_dir: str('可选：Minecraft 实例目录；只用于定位 config/sirius_bridge.toml，不改变公开配置'),
+    }),
     timeoutMs: 30_000,
     run: async (args, exec) => {
       if (callerIsSubagent(exec)) throw new Error('子代理不能初始化身体：请由它的 Sirius 主会话调用 sirius_init')
       if (typeof sharedState.init !== 'function') throw new Error('当前宿主没有配置 sirius_init')
-      const data = await sharedState.init(exec)
+      const data = await sharedState.init(exec, args)
       return {
         summary: `本会话已取得身体独占控制权，桥连接已重置（owner=${data?.owner ?? '?'}）。游戏世界和会话历史未重置。`,
         data,
@@ -244,8 +249,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       ]
       if (value.inGame) {
         bits.push(`HP ${value.health ?? '?'} 食 ${value.food ?? '?'} @ ${short(value.position, 50)} (${value.gameMode ?? '?'})`)
-        // 窗口焦点是隐形前置条件：GUI 点击要求前台，失焦时 mouseMove 会卡到超时
-        if (value.windowFocused === false) bits.push('窗口未激活（GUI 点击/悬停会失灵，先切到游戏窗口）')
+        if (value.windowFocused === false) bits.push('窗口未激活（原版悬停与拖拽受焦点影响）')
         else if (value.windowFocused === true) bits.push('窗口在前台')
       }
       const diag = diagnostics?.()
@@ -474,11 +478,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
   })
 
   const horizontal = (a, b) => (a && b ? Math.hypot(a.x - b.x, a.z - b.z) : 0)
-  const travelDistance = (a, b, includeY = false) => (a && b
-    ? Math.hypot(a.x - b.x, includeY ? a.y - b.y : 0, a.z - b.z)
-    : 0)
-  const atTarget = (position, target, tolerance) => horizontal(position, target) <= tolerance
-    && (target.y == null || (Number.isFinite(position.y) && Math.abs(position.y - target.y) <= 2))
+
 
   /**
    * `registry:id` + 游戏内显示名，一起给模型看。
@@ -697,9 +697,8 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
   const click = defineTool({
     name: 'sirius_click',
     description:
-      '鼠标点击。不给 at = 点当前光标（无界面时是攻击/使用/选取）；给 at = 先把鼠标移到该 **GUI 坐标**再点'
-      + '（坐标来自 sirius_gui 的槽位/widget，插件自动换算到窗口像素并校验落点）。'
-      + 'hold_ms 是按住时长（与 count 互斥）。GUI 点击要求游戏窗口在**前台**（失焦时 mouseMove 会卡到超时、悬停也不更新）——点了没反应先把窗口切前台。'
+      '鼠标点击。不给 at = 点当前光标；给 at = 点 sirius_gui 返回的 GUI 坐标。'
+      + '协议 1.13 支持窗口失焦时直接点当前界面。hold_ms 与 count 互斥。'
       + '挖掘/放置仍用 sirius_dig / sirius_place（动作层，不受焦点影响）。',
     parameters: obj({
       at: {
@@ -717,7 +716,8 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       await requireInGame('点击')
       const buttonMap = { left: 0, right: 1, middle: 2 }
       const button = buttonMap[String(args.button ?? 'left')] ?? 0
-      if (args.at) {
+      const direct = args.at && supportsGuiClick(link.protocol)
+      if (args.at && !direct) {
         // 🔴 无界面时 bridge 会拒绝 mouseMove（-32013 mouse_grabbed：那会转视角）。
         //    所以 at 只在"界面开着"时才有意义，先明确检查一次，别让探测报文撞在墙上。
         const guiState = await link.call('getGuiState', {})
@@ -742,7 +742,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
           )
         }
       }
-      const params = { button }
+      const params = direct ? { button, at: args.at } : { button }
       if (args.hold_ms != null) params.hold_ms = Math.max(0, Math.min(10_000, Number(args.hold_ms) || 0))
       else params.count = Math.max(1, Math.min(8, Number(args.count ?? 1) || 1))
       const data = await link.call('input.click', params)
@@ -894,7 +894,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
   const walk = defineTool({
     name: 'sirius_walk',
     description:
-      '走到一个坐标（直接调用 Baritone API）。给 y 时，到位要求水平在 tolerance 内且高度差不超过 2 格。'
+      '走到一个坐标（直接调用 Baritone API）。默认到达指定方块格；省略 y 时只检查 X/Z。显式给 tolerance 时使用半径和 2 格高度差。'
       + '**默认不破坏方块**（allow_break=false → 通过 API 设置 allowBreak=false），也不放置方块'
       + '（allow_place=false）：寻路会绕路，走不通就停下，不再砸开墙抄近路。需要时显式 allow_break=true 放行。'
       + '卡住（4.5s 无进展）会自动找 8 格内的门/栅栏门/活板门/按钮/拉杆，用 use 打开后重试一次。'
@@ -906,7 +906,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       x: num('目标 X（世界坐标）'),
       z: num('目标 Z（世界坐标）'),
       y: num('目标 Y（可选；不给则交给寻路器落到地表）'),
-      tolerance: num('到位半径 0.5..8（格），默认 1.5'),
+      tolerance: num('可选近似到达半径 0.5..8（格）；省略时按方块格判定'),
       timeout_ms: int('总超时 5000..180000（默认 60000）'),
       allow_break: bool('允许寻路砸方块（默认 false：不破坏，走不通就报 blocked）'),
       allow_place: bool('允许寻路放置方块垫脚/搭桥（默认 false）'),
@@ -918,7 +918,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       await requireReady('走路')
       await followTracker.cancel('sirius_walk')
       const timeoutMs = args.timeout_ms ?? 60_000
-      const tolerance = args.tolerance ?? 1.5
+      const tolerance = args.tolerance ?? null
       const allowBreak = args.allow_break === true
       const allowPlace = args.allow_place === true
       const openDoors = args.open_doors !== false && sharedState.capabilities.hasUse !== false
@@ -937,7 +937,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
         })
         await driveBaritoneCommand(started.command, { waitMs: 500 })
         return {
-          summary: `出发了（后台）：目标 (${Math.round(args.x)}, ${Math.round(args.z)})，`
+          summary: `出发了（后台）：目标 (${Math.floor(args.x)}, ${Math.floor(args.z)})，`
             + `${Math.round(timeoutMs / 1000)}s 预算；到达/卡住/超时会另发一条通知（这条调用不占回合）`,
           data: {
             result: 'started',
@@ -955,14 +955,15 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       const start = startStats?.position
       if (!start || startStats?.in_game !== true) throw new Error('读不到坐标（不在世界？）')
       const target = { x: args.x, z: args.z, y: args.y ?? null }
-      const cmd = args.y != null
-        ? `#goto ${Math.round(args.x)} ${Math.round(args.y)} ${Math.round(args.z)}`
-        : `#goto ${Math.round(args.x)} ${Math.round(args.z)}`
+      const goal = walkGoal(target)
+      const cmd = goal.y != null ? `#goto ${goal.x} ${goal.y} ${goal.z}` : `#goto ${goal.x} ${goal.z}`
       const stop = () => driveBaritoneCommand('#stop', { waitMs: 300 }).catch(() => {})
       await driveBaritoneCommand(cmd, { waitMs: 500 })
 
       const t0 = Date.now()
       let last = start
+      let progressAnchor = start
+      let settleRetries = 0
       let lastProgressAt = Date.now()
       let resent = 0
       let opened = 0
@@ -987,13 +988,26 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
         if (!p) continue
         const distance = Math.hypot(p.x - target.x, p.z - target.z)
         bestDistance = Math.min(bestDistance, distance)
-        if (atTarget(p, target, tolerance)) {
+        if (walkArrived(p, target, goal, tolerance)) {
           await stop()
           // 真机发现（2026-10-31）：`#stop` 不是立即刹停，还会滑 3 格左右。
           // 复核一次停稳位置，让"我到底站在哪"可信。
           await sleep(450)
           const settledStats = await link.call('getStats', {}).catch(() => null)
-          const settled = settledStats?.position ?? p
+          const settled = settledStats?.position
+          const arrived = walkArrived(settled, target, goal, tolerance)
+          if (exec?.signal?.aborted || sharedState.canControl?.(exec?.agent?.id) === false) {
+            throw new Error('走路已取消或控制权已变更')
+          }
+          if (!arrived) {
+            if (settled && settleRetries++ === 0 && Date.now() - t0 < timeoutMs) {
+              last = progressAnchor = settled
+              lastProgressAt = Date.now()
+              await driveBaritoneCommand(cmd, { waitMs: 400 })
+              continue
+            }
+            return { summary: '停稳后未确认到达目标', data: { result: 'off_target', from: start, to: settled ?? null, target, goal } }
+          }
           const settledDistance = Math.hypot(settled.x - target.x, settled.z - target.z)
           return {
             summary: `到达 (${args.x}, ${args.z})：剩余 ${distance.toFixed(2)} 格，用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`
@@ -1013,8 +1027,8 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
             },
           }
         }
-        if (travelDistance(last, p, target.y != null) >= 0.75) {
-          last = p
+        if (walkDistance(progressAnchor, p, target.y != null) >= 0.75) {
+          progressAnchor = last = p
           lastProgressAt = Date.now()
           continue
         }
@@ -1022,12 +1036,17 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
         if (Date.now() - lastProgressAt < stallMs) continue
 
         // --- 卡住了。先分清"压根没动"（Baritone 没装/命令没进去）与"被挡住"
-        const moved = travelDistance(start, last, target.y != null)
-        if (moved < 1) {
+        const moved = walkDistance(start, last, target.y != null)
+        const baritoneState = await probeBaritoneState()
+        if (baritoneState?.state === 'calculating' && Date.now() - lastProgressAt < 15000) continue
+        if (baritoneState?.state === 'arrived') {
+          await stop()
+          return { summary: '寻路已结束，实际位置偏离目标', data: { result: 'off_target', from: start, to: last, target, goal, baritone: baritoneState } }
+        }
+        if (moved < 1 || baritoneState?.state === 'no_path') {
           await stop()
           // 1.6：问一次 Baritone 自己在干什么。`no_path` 说明它算不出路（旁边没路/目标不可达），
           // 这和"没装 Baritone"是两回事，教学话术必须分开，否则模型会一直重试同一条路。
-          const baritoneState = await probeBaritoneState()
           const noPath = baritoneState?.state === 'no_path'
           return {
             summary: noPath
@@ -1052,7 +1071,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
           if (door) {
             opened += 1
             lastProgressAt = Date.now()
-            await sendCommand(cmd, { waitMs: 400 }).catch(() => {})
+            await driveBaritoneCommand(cmd, { waitMs: 400 }).catch(() => {})
             continue
           }
         }

@@ -17,8 +17,10 @@
  * ============================================================================
  */
 
+import { walkGoal, walkArrived, walkDistance } from './walk-goal.mjs'
+
 export const WALK_DEFAULTS = {
-  tolerance: 1.5,
+  tolerance: null,
   yTolerance: 2,
   /** 多久没进展算卡住（与阻塞 walk 的判据一致）。 */
   stallMs: 4_500,
@@ -82,10 +84,13 @@ export class WalkTracker {
    */
   start ({ x, z, y = null, tolerance, timeoutMs, owner = null, chatCommand }) {
     const now = this.#now()
-    const command = y != null ? `#goto ${Math.round(x)} ${Math.round(y)} ${Math.round(z)}` : `#goto ${Math.round(x)} ${Math.round(z)}`
+    const goal = walkGoal({ x, y, z })
+    const command = goal.y != null ? `#goto ${goal.x} ${goal.y} ${goal.z}` : `#goto ${goal.x} ${goal.z}`
     this.#walk = {
       id: `walk-${++this.#seq}`,
       target: { x, z, y },
+      goal,
+      settleRetries: 0,
       tolerance: tolerance ?? this.#config.tolerance,
       yTolerance: this.#config.yTolerance,
       timeoutMs: timeoutMs ?? this.#config.timeoutMs,
@@ -129,6 +134,7 @@ export class WalkTracker {
     } catch {
       return null
     }
+    if (this.#walk !== walk) return null
     if (status?.online !== true || status?.inGame !== true) {
       return this.#finish('left_game', walk, '（不在游戏里了，走路任务作废）')
     }
@@ -142,7 +148,7 @@ export class WalkTracker {
 
     // 进展判定：相对"上一次记进度时的落点"挪了 ≥0.75 格才算有进展
     if (!walk.anchor) walk.anchor = { x: position.x, y: position.y, z: position.z }
-    if (Math.hypot(position.x - walk.anchor.x, includeY ? position.y - walk.anchor.y : 0, position.z - walk.anchor.z) >= 0.75) {
+    if (walkDistance(position, walk.anchor, includeY) >= 0.75) {
       walk.anchor = { x: position.x, y: position.y, z: position.z }
       walk.lastProgressAt = now
     }
@@ -150,16 +156,27 @@ export class WalkTracker {
       ? Math.hypot(position.x - walk.startPosition.x, includeY ? position.y - walk.startPosition.y : 0, position.z - walk.startPosition.z)
       : 0
 
-    if (distance <= walk.tolerance
-      && (!includeY || (Number.isFinite(position.y) && Math.abs(position.y - walk.target.y) <= walk.yTolerance))) {
+    if (walkArrived(position, walk.target, walk.goal, walk.tolerance, walk.yTolerance)) {
       try { await this.#command('#stop', { waitMs: 300 }) } catch { /* ignore */ }
       // `#stop` 会滑 3 格左右（真机），复核一次停稳位置再汇报
-      let settled = position
+      let settled = null
       try {
         await new Promise((resolve) => setTimeout(resolve, 450))
         const again = await this.#status()
         if (again?.position) settled = again.position
       } catch { /* ignore */ }
+      if (this.#walk !== walk) return null
+      if (!walkArrived(settled, walk.target, walk.goal, walk.tolerance, walk.yTolerance)) {
+        if (settled) walk.lastPosition = settled
+        if (settled && walk.settleRetries++ === 0 && this.#now() - walk.startedAt < walk.timeoutMs) {
+          walk.anchor = settled
+          walk.lastProgressAt = this.#now()
+          await this.#command(walk.chatCommand, { waitMs: 400 })
+          return null
+        }
+        return this.#finish('off_target', walk, '〔偏离〕停稳后未确认到达目标。')
+      }
+      walk.lastPosition = settled
       const settledDistance = Math.hypot(settled.x - walk.target.x, settled.z - walk.target.z)
       const elapsed = ((now - walk.startedAt) / 1000).toFixed(1)
       return this.#finish(
@@ -184,10 +201,15 @@ export class WalkTracker {
     // 一步都没动过 → 多半是 Baritone 没装 / 命令没送进去，跟"被挡住"不是一回事。
     // 1.6 起先问一句 Baritone：它自报 no_path 就是"算不出路"（目标不可达/被封住），
     // 教学话术必须和"没装 Baritone"分开，否则模型会一直重发同一个目标。
-    if (totalMoved < 1) {
+    const bari = await Promise.resolve().then(() => this.#baritone()).catch(() => null)
+    if (this.#walk !== walk) return null
+    if (bari?.state === 'calculating' && now - walk.lastProgressAt < 15000) return null
+    if (bari?.state === 'arrived') {
       try { await this.#command('#stop', { waitMs: 300 }) } catch { /* ignore */ }
-      let bari = null
-      try { bari = await this.#baritone() } catch { /* 拿不到就算了 */ }
+      return this.#finish('off_target', walk, '〔偏离〕寻路已结束，实际位置偏离目标。')
+    }
+    if (totalMoved < 1 || bari?.state === 'no_path') {
+      try { await this.#command('#stop', { waitMs: 300 }) } catch { /* ignore */ }
       const noPath = bari?.state === 'no_path'
       return this.#finish(
         noPath ? 'no_path' : 'no_progress',

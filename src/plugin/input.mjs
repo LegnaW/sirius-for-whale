@@ -20,8 +20,21 @@ export function keyCode (value) {
   throw new Error(`不支持的键名 ${raw}`)
 }
 
+export function supportsGuiClick (protocol) {
+  const match = /^(\d+)\.(\d+)$/.exec(protocol ?? '')
+  return !!match && (Number(match[1]) > 1 || (match[1] === '1' && Number(match[2]) >= 13))
+}
+
 export async function clickAt ({ call, click }) {
   const button = { left: 0, right: 1, middle: 2 }[click.button ?? 'left'] ?? 0
+  if (click.count != null && click.hold_ms != null) throw new Error('count 与 hold_ms 互斥')
+  const params = { button }
+  if (click.hold_ms != null) params.hold_ms = click.hold_ms
+  else params.count = click.count ?? 1
+  const protocol = click.at ? (await call('capabilities/list', {}))?.protocol_version : null
+  if (click.at && supportsGuiClick(protocol)) {
+    return call('input.click', { ...params, at: click.at })
+  }
   if (click.at) {
     const probe = await call('input.mouseMove', { x: 100, y: 100 })
     const scale = 100 / probe?.gui_scaled?.x
@@ -33,9 +46,5 @@ export async function clickAt ({ call, click }) {
       throw new Error(`鼠标未落到预期 GUI 坐标：${moved.gui_scaled.x},${moved.gui_scaled.y}`)
     }
   }
-  if (click.count != null && click.hold_ms != null) throw new Error('count 与 hold_ms 互斥')
-  const params = { button }
-  if (click.hold_ms != null) params.hold_ms = click.hold_ms
-  else params.count = click.count ?? 1
   return call('input.click', params)
 }

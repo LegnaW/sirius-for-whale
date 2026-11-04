@@ -170,7 +170,9 @@ test('init 生成 core 参考副本，修改 example 不影响注册表且下次
   const exampleDir = join(root, 'a', 'scripts', 'example')
   const index = JSON.parse(await readFile(join(exampleDir, 'index.json'), 'utf8'))
   assert.equal(index.reference_only, true)
-  assert.equal(index.plugins.length, 13)
+  assert.equal(index.plugins.length, 15)
+  assert.ok(index.plugins.some((entry) => entry.id === 'core.gather'))
+  assert.ok(index.plugins.some((entry) => entry.id === 'core.engage'))
   assert.ok(index.plugins.every((entry) => entry.id.startsWith('core.') && entry.manifest.mode))
   const original = manager.registry.get('core.open_block').code
   const exampleFile = join(exampleDir, 'core.open_block.mjs')

@@ -108,10 +108,14 @@ test('工具返回值一定会被压成无损 JSON（undefined 键被删掉）',
 
 test('身体所有权：非所有者只能读和 init，所有者才可行动', async () => {
   const { link, calls } = makeLink()
+  let initArgs = null
   const state = {
     capabilities: { protocol: '1.6' },
     canControl: (id) => id === 'owner',
-    init: async (exec) => ({ result: 'initialized', owner: exec.agent.id, previous_owner: 'owner' }),
+    init: async (exec, args) => {
+      initArgs = args
+      return { result: 'initialized', owner: exec.agent.id, previous_owner: 'owner' }
+    },
   }
   const tools = createTools({ ctx: { get: () => undefined }, link, log: () => {}, state })
   const other = { agent: { id: 'other' } }
@@ -122,9 +126,10 @@ test('身体所有权：非所有者只能读和 init，所有者才可行动', 
   assert.equal(status.data.body.can_control, false)
   assert.match(status.summary, /sirius_init/)
 
-  const initialized = await find(tools, 'sirius_init').execute({}, other)
+  const initialized = await find(tools, 'sirius_init').execute({ game_dir: 'mock/game' }, other)
   assert.equal(initialized.data.result, 'initialized')
   assert.equal(initialized.data.owner, 'other')
+  assert.deepEqual(initArgs, { game_dir: 'mock/game' })
   await find(tools, 'sirius_say').execute({ text: '所有者可以说话' }, { agent: { id: 'owner' } })
   assert.equal(calls.filter((call) => call.method === 'chat.send').length, 1)
 })
@@ -1005,6 +1010,15 @@ test('sirius_type：转发 input.text，空串直接拒', async () => {
   assert.deepEqual(calls.at(-1), { method: 'input.text', params: { string: '你好 sirius' } })
   assert.match(value.summary, /输入 9\/9/)
   await assert.rejects(tool.execute({ text: '' }, {}), /不能为空/)
+})
+
+test('sirius_click：协议 1.13 直接提交 GUI 坐标', async () => {
+  const { link, calls } = makeInputLink()
+  link.protocol = '1.13'
+  const tool = find(createTools({ ctx: { get: () => undefined }, link, log: () => {} }), 'sirius_click')
+  const at = { x: 15.5, y: 20 }
+  await tool.execute({ at, button: 'right' }, {})
+  assert.deepEqual(calls, [{ method: 'input.click', params: { button: 1, at, count: 1 } }])
 })
 
 test('sirius_click：给 at 时先探测缩放，再换算成窗口像素并校验落点', async () => {
