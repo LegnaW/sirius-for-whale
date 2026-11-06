@@ -10,7 +10,7 @@ description: 使用 Sirius 官方 core.* 插件，包括移动、战斗、合成
 ## 移动与交互
 
 - `core.walk`：安全走到 `{x,z,y?,tolerance?,timeout_ms?}`。必定 allow_break=false、allow_place=false，传入 true 也不会改变。结果包括 arrived/no_path/no_progress/blocked/timeout/interrupted。
-- `core.gather {x,y,z,range?,max_blocks?}`：以指定坐标为中心，在 3、5 或 7 格边长的立方体内采集同注册 ID 的方块，默认范围 3。按挖掉的方块计上限（默认 12，最多 32）。需要 Bridge 1.14，先手持适合目标的工具。围绕目标找可站格，移动禁止破坏和放置；结束时集中拾取，返回背包增量与跳过原因。
+- `core.gather {from:{x,y,z},to:{x,y,z},blocks,allow_other_blocks?,max_blocks?,timeout_ms?}`：两角定义含端点的长方体。blocks 必填，为非空方块注册 ID 数组（支持模组 ID），或精确字符串 "all"。只有 "all" 才采集全部可破坏的非空气方块，缺失或空值拒绝执行。allow_other_blocks 默认 false，true 时可清理区域外的沿途障碍。逐轮重扫直到无进展，边采边捡。默认无数量上限，区域最多 4096 格，时限默认 180 秒、最大 280 秒。需要 Bridge 1.17，自动从快捷栏选择合适工具（不会从主背包搬工具）。
 - `core.dig_to`：参数同 walk，但必定允许挖除路径障碍且不放置方块。只在明确允许破坏的区域使用；结果字段同样包含 from/to/settled。
 - `core.follow`：`{uuid}` 或 `{name}` 二选一，另可给 follow_radius（默认10）、allow_break/place（默认false）。持续跟随，lost/blocked 会通知；用 disable 或 sirius_stop 停止。
 - `core.tunnel`：`{height,width,depth,timeout_ms?}`，沿当前水平朝向挖隧道。height 2..16、width 1..16、depth 1..256。先确认允许破坏；结果包括 done/blocked/no_path/no_progress/timeout/interrupted。
@@ -74,3 +74,5 @@ description: 使用 Sirius 官方 core.* 插件，包括移动、战斗、合成
 - enable/disable：管理常驻期望状态；once/task 完成后 enabled 自动清除。
 - sirius_stop：系统级停止全部插件与脚本 run。
 - core.* 不可修改或删除；user.* 自制插件才可 create/update/delete。
+
+角点与上限、时限使用 JSON 数字，不要加引号。invalid_args.errors 逐字段说明错误。collected 是期间背包正增量，可能混入其他来源；inventory_delta 含正负变化。remaining 为尚未完成的目标，scan.unknown 是未加载格。pickup_scan_complete=false 时 uncollected={} 不能表示已捡完。脚本不检查血量阈值、固定支撑面或邻接液体；简化策略跳过 Bridge 的补充液体、落沙、脚下支撑保护，仍遵守交互距离和服务端判定。

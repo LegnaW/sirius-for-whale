@@ -3,6 +3,7 @@ import { mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/pr
 import { dirname, join, relative, resolve } from 'node:path'
 import { PluginRegistry } from './registry.mjs'
 import { registerBuiltins } from './builtins.mjs'
+import { gatherArgs } from './gather.mjs'
 
 const MAX_CONFIG_BYTES = 256 * 1024
 const MAX_PLUGINS = 64
@@ -16,7 +17,7 @@ const CORE_ARG_KEYS = {
   'core.container_exchange': ['deposit', 'withdraw'],
   'core.screenshot': ['tier', 'bbox', 'quality'],
   'core.walk': ['x', 'y', 'z', 'tolerance', 'timeout_ms', 'open_doors'],
-  'core.gather': ['x', 'y', 'z', 'range', 'max_blocks'],
+  'core.gather': ['from', 'to', 'blocks', 'allow_other_blocks', 'max_blocks', 'timeout_ms', 'x', 'y', 'z', 'range'],
   'core.dig_to': ['x', 'y', 'z', 'tolerance', 'timeout_ms', 'open_doors'],
   'core.follow': ['uuid', 'name', 'follow_radius', 'allow_break', 'allow_place'],
   'core.craft': ['grid', 'result', 'count', 'x', 'y', 'z', 'range'],
@@ -25,7 +26,7 @@ const CORE_ARG_KEYS = {
 }
 
 const INTEGER_ARGS = {
-  'core.gather': { max_blocks: [1, 32] },
+  'core.gather': { max_blocks: [1, 4096], timeout_ms: [5000, 280000] },
   'core.damage_watch': { damageCooldownMs: [0, 300000], observeWindowMs: [0, 60000], maxWakePerMinute: [0, 100] },
   'core.drop': { slot: [0, 40], count: [1, 64] },
   'core.inventory_move': { from_slot: [0, 40], to_slot: [0, 40], count: [1, 128] },
@@ -56,8 +57,9 @@ function assertKeys (value, allowed, label) {
 function validateCoreArgs (id, args) {
   if (!plainObject(args)) throw new Error(`${id}.args 必须是对象`)
   assertKeys(args, CORE_ARG_KEYS[id] ?? [], `${id}.args`)
-  if (id === 'core.gather' && args.range !== undefined && ![3, 5, 7].includes(args.range)) {
-    throw new Error('core.gather.args.range 必须是 3、5 或 7')
+  if (id === 'core.gather') {
+    const { errors } = gatherArgs(args, true)
+    if (errors.length) throw new Error('core.gather.args 校验失败：' + JSON.stringify(errors))
   }
   for (const [key, [min, max]] of Object.entries(INTEGER_ARGS[id] ?? {})) {
     if (args[key] === undefined) continue

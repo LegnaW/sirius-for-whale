@@ -115,9 +115,9 @@ function movementCode (operation, allowBreak) {
 
 export function registerBuiltins (registry, { damageWatch = {} } = {}) {
   registry.registerBuiltin({
-    id: gatherId, description: '在指定范围内采集同类方块并拾取掉落物',
+    id: gatherId, description: '采集两角定义的长方体内符合 ID 条件的方块并拾取',
     code: gatherCode,
-    manifest: { mode: 'once', priority: 45, timeoutMs: 100000, description: '限量区域采集' },
+    manifest: { mode: 'once', priority: 45, timeoutMs: 300000, description: '长方体区域采集' },
   })
   registry.registerBuiltin({
     id: engageId, description: '选择一只已知敌对生物，安全接近并近战',
