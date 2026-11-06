@@ -1853,7 +1853,7 @@ export function createTools ({ ctx, link, log, onSelfSpoke, diagnostics, state }
       id: str('插件 id：内置 core.* 或用户 user.*'),
       code: str('create/update 的脚本代码，export default async function(ctx)'),
       manifest: { type: 'object', additionalProperties: true, description: 'mode=once/task/service、priority、timeoutMs、persistent、maxRestarts、restartDelayMs、args' },
-      args: { type: 'object', additionalProperties: true, description: '本次运行参数，与 manifest.args 合并' },
+      args: { type: 'object', additionalProperties: true, description: '本次运行参数，与 manifest.args 合并；数字字段使用 JSON 数字（例如 5），不要使用字符串 "5"' },
       run_id: str('status/logs 的运行实例 id'),
       since: int('logs 起始序号（不含）'),
       limit: int('logs 最多条数'),

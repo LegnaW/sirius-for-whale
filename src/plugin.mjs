@@ -257,6 +257,8 @@ export function apply (ctx, rawConfig) {
   const scripts = new ScriptRuntime({
     link,
     canControl: bridgeCache.canControl,
+    canSpeak: (owner) => String(owner) === ownership.owner,
+    onSelfSpoke: (text) => watchdog.noteSelfSpoke(text),
     log,
     config: config.scripts ?? {},
   })

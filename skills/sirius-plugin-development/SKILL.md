@@ -101,14 +101,14 @@ baritone.status, capabilities/list, chat.history
 注册插件可用动作方法：
 
 ```text
-dig, place, use, useItem, entity.use, entity.attack,
+dig, place, use, useItem, entity.use, entity.attack, look, lookAt, chat.send,
 inventory.select, inventory.drop,
 container.clickSlot, container.transfer, container.close,
 baritone.goto, baritone.follow, baritone.settings, baritone.stop, baritone.tunnel,
-input.key, input.mouseMove, input.click
+input.key, input.text, input.mouseMove, input.click
 ```
 
-优先使用精确对象和动作层接口。input.* 仅作缺少动作接口时的兜底。ActionScheduler 按 movement/world_edit/interaction/inventory/combat 仲裁：低级冲突等待，高级抢占；run 结束释放租约。父脚本等待子插件前不要提前持有子插件需要的同一资源。
+优先使用精确对象和动作层接口。input.* 仅作缺少动作接口时的兜底。chat.send 仅身体主会话可调用，子代理脚本由主代理转述。截图使用 ctx.screenshot，事件使用 ctx.events.subscribe。ActionScheduler 按 movement/world_edit/interaction/inventory/combat/view/communication 仲裁：低级冲突等待，高级抢占；run 结束释放租约。父脚本等待子插件前不要提前持有子插件需要的同一资源。
 
 ### `ctx.plugins`：复用已注册插件
 
@@ -219,3 +219,5 @@ export default async function (ctx) {
 - 动作一直等待：检查资源租约和优先级，不要让父插件持锁等待需要同锁的子插件。
 - service 不再运行：检查是否非 persistent 已条件完成、超过 maxRestarts、被禁用或被 init 切换。
 - 修改 example 没生效：这是预期；实际用户代码必须放在 `scripts/<name>.mjs` 并提交配置。
+
+插件发起的 goto/follow/tunnel 在 run 结束、失败、取消或超时后会停止，清理完成再释放租约。要持续移动，请保持 task/service 运行并等待状态；baritone.stop 也需要移动租约，低优先级实例会等待。allow_place=true 与 allow_break=true 都申请 world_edit。

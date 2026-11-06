@@ -20,8 +20,10 @@ export class ScriptRuntime {
   #sequence = 0
   #disposed = false
 
-  constructor ({ link, canControl, log = () => {}, config = {}, scheduler = null }) {
+  constructor ({ link, canControl, canSpeak = () => false, onSelfSpoke = () => {}, log = () => {}, config = {}, scheduler = null }) {
     this.link = link
+    this.canSpeak = canSpeak
+    this.onSelfSpoke = onSelfSpoke
     this.canControl = typeof canControl === 'function' ? canControl : () => true
     this.log = log
     this.scheduler = scheduler
@@ -75,6 +77,7 @@ export class ScriptRuntime {
       worker: null,
       timer: null,
       allowWrite,
+      finishing: false,
       pluginId,
       priority,
       parentId,
@@ -98,9 +101,9 @@ export class ScriptRuntime {
       }
     })
     worker.on('message', (frame) => this.#onMessage(record, frame))
-    worker.on('error', (error) => this.#finish(record, 'failed', { error: textOf(error) }))
+    worker.on('error', (error) => { this.#finish(record, 'failed', { error: textOf(error) }).catch(this.log) })
     worker.on('exit', (code) => {
-      if (activeStatus(record)) this.#finish(record, 'failed', { error: `Worker 未返回结果便退出（code ${code}）` })
+      if (activeStatus(record) && !record.finishing) this.#finish(record, 'failed', { error: `Worker 未返回结果便退出（code ${code}）` }).catch(this.log)
     })
     return this.publicRun(record)
   }
@@ -140,6 +143,10 @@ export class ScriptRuntime {
   async stop (id, reason = 'stopped_by_agent') {
     const record = this.#runs.get(id)
     if (!record) throw new Error(`找不到 ${id}`)
+    if (record.finishing) {
+      await record.finishPromise
+      return this.publicRun(record)
+    }
     if (!activeStatus(record)) return this.publicRun(record)
     record.status = reason === 'deadline_exceeded' ? 'timed_out' : reason === 'preempted' ? 'preempted' : 'cancelled'
     record.outcome = 'unknown'
@@ -148,15 +155,7 @@ export class ScriptRuntime {
     this.#cancelSubscriptions(record)
     record.controller.abort(reason)
     record.worker.postMessage({ type: 'abort', reason })
-    if (reason === 'preempted') {
-      await this.link.call('baritone.stop', {}).catch((error) => this.log(`抢占停止移动失败：${textOf(error)}`))
-      await this.link.call('baritone.settings', { allow_break: false, allow_place: false })
-        .catch((error) => this.log(`抢占恢复移动设置失败：${textOf(error)}`))
-    } else if (record.localMovementActive) {
-      await this.link.call('baritone.stop', {}, { timeoutMs: this.config.rpcTimeoutMs })
-        .catch((error) => this.log(`内置脚本取消后停止移动失败：${textOf(error)}`))
-    }
-    this.#finish(record, record.status, { error: reason })
+    await this.#finish(record, record.status, { error: reason })
     return this.publicRun(record)
   }
 
@@ -217,11 +216,11 @@ export class ScriptRuntime {
   #onMessage (record, frame) {
     if (!frame || typeof frame !== 'object') return
     if (frame.type === 'finished') {
-      this.#finish(record, 'succeeded', { result: frame.result })
+      this.#finish(record, 'succeeded', { result: frame.result }).catch(this.log)
       return
     }
     if (frame.type === 'failed') {
-      this.#finish(record, 'failed', { error: frame.error })
+      this.#finish(record, 'failed', { error: frame.error }).catch(this.log)
       return
     }
     if (frame.type === 'log') {
@@ -243,6 +242,14 @@ export class ScriptRuntime {
   async #handleRequest (record, frame) {
     this.#requireActive(record)
     if (frame.type === 'api.call') {
+      if (frame.method === 'screenshot' || frame.method === 'events.subscribe') {
+        throw new Error(frame.method === 'screenshot'
+          ? '截图请使用 ctx.screenshot(params)，返回会话工作区文件路径'
+          : '事件订阅请使用 ctx.events.subscribe(filter)，由运行时管理迭代和退订')
+      }
+      if (frame.method === 'chat.send' && !this.canSpeak(record.owner)) {
+        throw new Error('当前脚本没有公屏发言权：仅身体主会话可发言，子代理请回传主代理转述')
+      }
       if (!READ_METHODS.has(frame.method)) {
         if (!record.allowWrite || !this.scheduler) throw new Error(`只读脚本不允许调用 ${String(frame.method)}`)
         await this.scheduler.acquire(record, frame.method, record.controller.signal, frame.params ?? {})
@@ -253,12 +260,21 @@ export class ScriptRuntime {
         await this.scheduler.acquire(record, frame.method, record.controller.signal)
       }
       this.#requireActive(record)
-      if (localMovementPlugins.has(record.pluginId) && frame.method === 'baritone.goto') record.localMovementActive = true
+      if (frame.method === 'chat.send' && !this.canSpeak(record.owner)) throw new Error('发言权限已变更')
+      if (['baritone.goto', 'baritone.follow', 'baritone.tunnel'].includes(frame.method)
+          || frame.method === 'chat.send' && String(frame.params?.string ?? '').trimStart().startsWith('#')) {
+        record.localMovementActive = true
+      }
       const result = await this.link.call(frame.method, frame.params ?? {}, {
-        timeoutMs: this.config.rpcTimeoutMs,
+        timeoutMs: frame.method === 'dig' && Number.isInteger(frame.params?.timeout_ms)
+          ? Math.max(this.config.rpcTimeoutMs, Math.min(30000, frame.params.timeout_ms) + 2500)
+          : this.config.rpcTimeoutMs,
         signal: record.controller.signal,
       })
-      if (localMovementPlugins.has(record.pluginId) && frame.method === 'baritone.stop' && result.result === 'stopped') {
+      if (frame.method === 'chat.send' && result.sent === true) {
+        try { this.onSelfSpoke(frame.params?.string) } catch { /* 回声记录不影响已发送结果 */ }
+      }
+      if (frame.method === 'baritone.stop' && result.result === 'stopped') {
         record.localMovementActive = false
       }
       this.#respond(record, frame.id, result)
@@ -367,7 +383,7 @@ export class ScriptRuntime {
   }
 
   #requireActive (record) {
-    if (!activeStatus(record)) throw new Error(`run 已终止（${record.status}）`)
+    if (!activeStatus(record) || record.finishing) throw new Error(`run 已终止（${record.status}）`)
     if (this.canControl(record.owner) === false) throw new Error('身体所有权已变更，旧 run 不能继续调用能力')
   }
 
@@ -393,8 +409,28 @@ export class ScriptRuntime {
     record.subscriptions.clear()
   }
 
-  #finish (record, status, { result, error } = {}) {
-    if (record.endedAt !== null) return
+  #finish (record, status, details = {}) {
+    if (record.finishing) return record.finishPromise
+    if (record.endedAt !== null) return Promise.resolve()
+    record.finishing = true
+    record.finishPromise = this.#complete(record, status, details)
+    return record.finishPromise
+  }
+
+  async #complete (record, status, { result, error } = {}) {
+    clearTimeout(record.timer)
+    record.controller.abort(status)
+    if (record.localMovementActive) {
+      try {
+        const stopped = await this.link.call('baritone.stop', {}, { timeoutMs: this.config.rpcTimeoutMs })
+        if (stopped.result !== 'stopped') throw new Error('Baritone 未确认停止')
+        await this.link.call('baritone.settings', { allow_break: false, allow_place: false }, { timeoutMs: this.config.rpcTimeoutMs })
+      } catch (failure) {
+        record.outcome = 'unknown'
+        error = [error, '持续移动清理失败：' + textOf(failure?.message ?? failure)].filter(Boolean).join('\n')
+        if (status === 'succeeded') status = 'failed'
+      }
+    }
     record.status = status
     if (status === 'failed' || status === 'preempted') record.outcome = 'unknown'
     if (result !== undefined) record.result = toLosslessJSON(result)

@@ -8,7 +8,7 @@ import { ActionScheduler } from '../src/plugin/scheduler.mjs'
 import { PluginManager } from '../src/plugin/manager.mjs'
 import { ScriptRuntime } from '../src/script/runtime.mjs'
 
-function environment (t, { storageFile = '', notify = () => {} } = {}) {
+function environment (t, { storageFile = '', notify = () => {}, canSpeak, onSelfSpoke } = {}) {
   const calls = []
   const listeners = new Set()
   const link = {
@@ -16,6 +16,8 @@ function environment (t, { storageFile = '', notify = () => {} } = {}) {
       calls.push({ method, params })
       if (method === 'world.query') return { blocks: [{ x: 4, y: 64, z: -2, block: 'sophisticatedstorage:gold_barrel' }] }
       if (method === 'use') return { result: 'screen_opened', screen_class: 'StorageScreen' }
+      if (method === 'baritone.stop') return { result: 'stopped' }
+      if (method === 'chat.send') return { sent: true }
       if (method === 'getStats') return { in_game: true, health: 20 }
       return { method, params }
     },
@@ -24,7 +26,7 @@ function environment (t, { storageFile = '', notify = () => {} } = {}) {
     emit: (event) => { for (const listener of listeners) listener(event) },
   }
   const scheduler = new ActionScheduler()
-  const runtime = new ScriptRuntime({ link, scheduler })
+  const runtime = new ScriptRuntime({ link, scheduler, canSpeak, onSelfSpoke })
   scheduler.bindRuntime(runtime)
   const registry = new PluginRegistry({ storageFile })
   const manager = new PluginManager({ registry, runtime, scheduler, notify })
@@ -291,4 +293,110 @@ test('宿主恢复 enabled 插件并重新启动实例', async (t) => {
   assert.equal(restored.owner, 'owner')
   assert.ok(runs.some((run) => run.plugin_id === 'core.damage_watch'))
   await manager.disable('user.resident')
+})
+
+test('registered scripts can look, type and speak with explicit main-session authorization', async (t) => {
+  const spoken = []
+  const { manager, calls } = environment(t, { canSpeak: owner => owner === 'main', onSelfSpoke: text => spoken.push(text) })
+  manager.create({
+    id: 'user.actions',
+    code: 'export default async function(ctx) { await ctx.api.call("look",{yaw:0,pitch:0}); await ctx.api.call("lookAt",{x:1,y:64,z:2}); await ctx.api.call("input.text",{string:"search"}); return ctx.api.call("chat.send",{string:"hello"}) }',
+  })
+  const run = await manager.start('user.actions', { owner: 'main' })
+  assert.equal((await manager.wait(run.run_id, 2000)).status, 'succeeded')
+  assert.deepEqual(calls.map(call => call.method), ['look', 'lookAt', 'input.text', 'chat.send'])
+  assert.deepEqual(spoken, ['hello'])
+  const denied = await manager.start('user.actions', { owner: 'child' })
+  const done = await manager.wait(denied.run_id, 2000)
+  assert.equal(done.status, 'failed')
+  assert.match(done.error, /发言权/)
+  assert.equal(calls.filter(call => call.method === 'chat.send').length, 1)
+})
+
+test('path placement and stop require movement, world-edit and view arbitration', () => {
+  const scheduler = new ActionScheduler()
+  assert.deepEqual(scheduler.resourcesFor('baritone.goto', { allow_place: true }), ['movement', 'world_edit', 'view'])
+  assert.deepEqual(scheduler.resourcesFor('baritone.stop'), ['movement', 'view'])
+  assert.deepEqual(scheduler.resourcesFor('chat.send', { string: '#goto 1 2' }), ['communication', 'movement', 'world_edit', 'view'])
+  assert.ok(scheduler.resourcesFor('input.key').includes('movement'))
+  assert.ok(scheduler.resourcesFor('dig').includes('view'))
+  assert.ok(scheduler.resourcesFor('entity.attack').includes('view'))
+})
+
+test('a generic user movement is stopped before its leases are released on cancellation', async (t) => {
+  const { manager, scheduler, calls, link, runtime } = environment(t)
+  let allowCleanup
+  const cleanup = new Promise(resolve => { allowCleanup = resolve })
+  const original = link.call
+  link.call = async (method, params) => {
+    if (method === 'baritone.stop') {
+      assert.ok(scheduler.snapshot().leases.movement)
+      await cleanup
+    }
+    return original(method, params)
+  }
+  manager.create({
+    id: 'user.moving',
+    code: 'export default async function(ctx) { await ctx.api.call("baritone.follow",{uuid:"target"}); await ctx.sleep(100000) }',
+  })
+  const run = await manager.start('user.moving')
+  await until(() => calls.some(call => call.method === 'baritone.follow'))
+  const stopping = runtime.stop(run.run_id)
+  const stoppingAgain = runtime.stop(run.run_id)
+  assert.equal(scheduler.snapshot().leases.movement, run.run_id)
+  allowCleanup()
+  await Promise.all([stopping, stoppingAgain])
+  assert.deepEqual(scheduler.snapshot().leases, {})
+  assert.equal(calls.filter(call => call.method === 'baritone.stop').length, 1)
+})
+
+test('a generic movement also stops when the script returns or throws', async (t) => {
+  const { manager, scheduler, calls } = environment(t)
+  for (const fail of [false, true]) {
+    manager.create({
+      id: 'user.finish_' + fail,
+      code: 'export default async function(ctx) { await ctx.api.call("baritone.goto",{x:1,z:2}); ' + (fail ? 'throw new Error("failed")' : 'return "done"') + ' }',
+    })
+    const run = await manager.start('user.finish_' + fail)
+    assert.equal((await manager.wait(run.run_id, 2000)).status, fail ? 'failed' : 'succeeded')
+    assert.deepEqual(scheduler.snapshot().leases, {})
+  }
+  assert.equal(calls.filter(call => call.method === 'baritone.stop').length, 2)
+})
+
+test('a lower-priority stop cannot interrupt another run movement lease', async (t) => {
+  const { manager, runtime, calls, scheduler } = environment(t)
+  manager.create({ id: 'user.holder', code: 'export default async function(ctx) { await ctx.api.call("baritone.follow",{}); await ctx.sleep(100000) }', manifest: { priority: 60 } })
+  manager.create({ id: 'user.stopper', code: 'export default async function(ctx) { return ctx.api.call("baritone.stop",{}) }', manifest: { priority: 40 } })
+  const holder = await manager.start('user.holder')
+  await until(() => calls.some(call => call.method === 'baritone.follow'))
+  const stopper = await manager.start('user.stopper')
+  await until(() => scheduler.snapshot().pending.length === 1)
+  assert.ok(!calls.some(call => call.method === 'baritone.stop'))
+  await runtime.stop(holder.run_id)
+  assert.equal((await manager.wait(stopper.run_id, 2000)).status, 'succeeded')
+})
+
+test('view actions wait for an ongoing dig and read-only scripts cannot acquire the new actions', async (t) => {
+  const { manager, runtime, scheduler, calls } = environment(t)
+  manager.create({ id: 'user.digging', code: 'export default async function(ctx) { await ctx.api.call("dig",{x:1,y:64,z:1}); await ctx.sleep(100000) }', manifest: { priority: 60 } })
+  manager.create({ id: 'user.looking', code: 'export default async function(ctx) { return ctx.api.call("lookAt",{x:2,y:64,z:1}) }', manifest: { priority: 40 } })
+  const digging = await manager.start('user.digging')
+  await until(() => scheduler.snapshot().leases.view === digging.run_id)
+  const looking = await manager.start('user.looking')
+  await until(() => scheduler.snapshot().pending.length === 1)
+  assert.ok(!calls.some(call => call.method === 'lookAt'))
+  await runtime.stop(digging.run_id)
+  assert.equal((await manager.wait(looking.run_id, 2000)).status, 'succeeded')
+  const readOnly = runtime.start({ code: 'export default async function(ctx){ return ctx.api.call("look",{yaw:0,pitch:0}) }' })
+  const denied = await runtime.waitFor(readOnly.run_id, 2000)
+  assert.equal(denied.status, 'failed')
+  assert.match(denied.error, /只读/)
+})
+
+
+test('automatic dig serializes hotbar selection with inventory actions', () => {
+  const scheduler = new ActionScheduler()
+  assert.deepEqual(scheduler.resourcesFor('dig', { auto_tool: true }), ['world_edit', 'view', 'inventory'])
+  assert.deepEqual(scheduler.resourcesFor('dig', { auto_tool: false }), ['world_edit', 'view'])
 })

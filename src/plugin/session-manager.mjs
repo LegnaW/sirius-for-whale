@@ -200,7 +200,7 @@ export class SessionPluginManager {
 
   async enable (id, { owner = '' } = {}) {
     this.#assertOwner(owner)
-    const result = await this.manager.enable(id, { owner: this.activeProfile ? this.activeOwner : owner })
+    const result = await this.manager.enable(id, { owner: owner || this.activeOwner })
     if (result.definition.manifest.mode === 'service' && result.definition.manifest.persistent) {
       await this.#syncActive()
     }

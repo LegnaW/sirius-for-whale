@@ -15,6 +15,7 @@ function environment (t, { position = () => ({ x: 0, y: 64, z: 0 }), baritone = 
       calls.push({ method, params })
       const override = onCall(method, params)
       if (override !== undefined) return override
+      if (method === 'baritone.stop') return { result: 'stopped' }
       if (method === 'getStats') return { in_game: true, position: position() }
       if (method === 'baritone.status') return { state: 'idle', ...baritone }
       if (method === 'input.mouseMove') return params.x === 100

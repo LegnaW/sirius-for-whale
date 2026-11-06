@@ -24,7 +24,8 @@ function environment (t, { position = () => ({ x: 0, y: 64, z: 0 }), followState
       calls.push({ method, params })
       if (method === 'getStats') return { in_game: true, position: position() }
       if (method === 'baritone.goto') { moved = true; return { result: 'started' } }
-      if (method === 'baritone.settings' || method === 'baritone.stop') return { result: 'ok' }
+      if (method === 'baritone.stop') return { result: 'stopped' }
+      if (method === 'baritone.settings') return { result: 'updated' }
       if (method === 'baritone.follow') return {
         result: 'following', target: { uuid: 'player-uuid', name: 'Steve', type: 'minecraft:player' },
       }
