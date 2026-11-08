@@ -8,7 +8,7 @@
 - `README.md` 是安装、工具、配置、行为与已知限制的主要技术说明；相关实现变化必须同步。
 - `../sirius-progress/whale/docs/PROGRESS.md` 是跨会话状态锚点，只记当前状态、验证证据和下一步。
 - `../sirius-progress/whale/docs/sessions/` 记录已确认轮次的方案、接口与收尾证据；`notes/` 保留原有调查笔记和专题分析，不把两者混成重复文档。
-- 桥端协议以独立 `sirius-bridge` 仓库的 `BRIDGE.md` 和 `schema/` 为准，本仓不维护第二份协议 schema。
+- 桥端协议以独立 `sirius-bridge` 仓库的 `docs/BRIDGE.md` 和 `schema/` 为准，本仓不维护第二份协议 schema。
 
 ## 2. 每轮开工
 
