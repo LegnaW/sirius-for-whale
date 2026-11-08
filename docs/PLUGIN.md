@@ -9,7 +9,7 @@
 > 的 `sirius-bridge`（NeoForge 模组），本仓只做"大脑与身体之间的翻译层 + 工具面 + 提示词"。
 > 设计血统：插件形态借鉴 `whale_craft`（MIT），协议与语义来自 Sirius（bridge LGPL-3.0 / brain Apache-2.0）。
 
-开发规范见 [AGENTS.md](AGENTS.md)；当前进度与验证状态见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+开发规范见 [AGENTS.md](../AGENTS.md)；当前进度与验证状态见私有集中仓库 [sirius-progress/whale](https://github.com/LegnaW/sirius-progress/tree/main/whale)。
 
 ## 它由什么组成
 

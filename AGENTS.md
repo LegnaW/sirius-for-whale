@@ -6,16 +6,16 @@
 
 - 本仓库负责 DSH 侧的桥连接、工具面、身体所有权、事件唤醒、自主/观察节律和提示词，不实现 Minecraft 模组内部行为。
 - `README.md` 是安装、工具、配置、行为与已知限制的主要技术说明；相关实现变化必须同步。
-- `docs/PROGRESS.md` 是跨会话状态锚点，只记当前状态、验证证据和下一步。
-- `docs/sessions/` 记录已确认轮次的方案、接口与收尾证据；`notes/` 保留原有调查笔记和专题分析，不把两者混成重复文档。
+- `../sirius-progress/whale/docs/PROGRESS.md` 是跨会话状态锚点，只记当前状态、验证证据和下一步。
+- `../sirius-progress/whale/docs/sessions/` 记录已确认轮次的方案、接口与收尾证据；`notes/` 保留原有调查笔记和专题分析，不把两者混成重复文档。
 - 桥端协议以独立 `sirius-bridge` 仓库的 `BRIDGE.md` 和 `schema/` 为准，本仓不维护第二份协议 schema。
 
 ## 2. 每轮开工
 
-1. 阅读本文件、`docs/PROGRESS.md`、`README.md` 相关章节、最近一篇会话记录和 `package.json`；本机路径、启动与测试方法以根目录 `local.md`（gitignored）为准。
+1. 阅读本文件、`../sirius-progress/whale/docs/PROGRESS.md`、`README.md` 相关章节、最近一篇会话记录和 `package.json`；本机路径、启动与测试方法以根目录 `local.md`（gitignored）为准。
 2. 用 `git status --short` 检查未提交改动。保留用户和其它轮次的工作；`persona.txt` 没有明确要求不要改。
 3. 行为变更先说明根因或需求、方案和主要取舍，得到用户确认后再写代码。纯文档、明确的小修复和用户已确认的实施步骤可直接继续。
-4. 非平凡变更先在 `docs/sessions/YYYY-MM-DD-<主题>.md` 记录方案、接口和验收方式；补记历史工作时必须明确标注，不伪称事前完成。
+4. 非平凡变更先在 `../sirius-progress/whale/docs/sessions/YYYY-MM-DD-<主题>.md` 记录方案、接口和验收方式；补记历史工作时必须明确标注，不伪称事前完成。
 
 ## 3. 实施纪律
 
@@ -37,7 +37,7 @@
 2. **自动验证**：在仓库根运行 `npm test` 和 `git diff --check`。聊天判分变化必须保留并通过 `test/fixtures/chat-cases.json` 的 golden 语料。
 3. **真机口径**：单元测试通过不等于 DSH/游戏通过。真实工具调用、事件唤醒和页面操作须记录实际结果；未复测就明确写“真机待验”。
 4. **清理与状态**：删除本轮临时探针、请求 JSON、日志和不需要的测试截图；`.tmp/` 不作为交付物。结束前再查 `git status --short`。
-5. **进度记录**：补全会话记录的改动、问题、验证和遗留项，并更新 `docs/PROGRESS.md`。
+5. **进度记录**：补全会话记录的改动、问题、验证和遗留项，并更新 `../sirius-progress/whale/docs/PROGRESS.md`。
 6. **交付**：向用户摘要改动与证据。只有用户明确要求时才提交或推送；提交按逻辑单元拆分，不夹带 `persona.txt` 等无关改动。
 
 ## 5. DSH 与真机验证
@@ -54,7 +54,7 @@
 
 - `../ref/dsh-mc-agent/`：完整 Mineflayer Agent 参考。重点阅读 `src/task-runner.mjs` / `task-exec.mjs`（持久任务与恢复）、`src/budget.mjs`（执行片预算）、`src/action-scheduler.mjs`（资源互斥与抢占）、`src/world-scan.mjs` / `map-render.mjs`（决策型感知）及 `extensions/mc_auto.mjs`（事件与自主策略）。其高层工具作为脚本行为的参考，不要求逐个原生化。
 - `../A team of Gemini 4 Argon agents beats Minecraft.txt`：模型自写 JavaScript 的参考。采用“观察 → 短程序 → 结果与错误 → 下一段程序”、验证结果、沉淀辅助函数和记录教训的理念；不采用多智能体模式，也不开放论文中宿主级 shell、文件和网络能力。
-- v2 当前接口与迁移阶段以 `docs/sessions/2026-11-02-v2-script-runtime.md` 为准。参考资料与当前实现冲突时，先记录差异并确认，不静默照搬。
+- v2 当前接口与迁移阶段以 `../sirius-progress/whale/docs/sessions/2026-11-02-v2-script-runtime.md` 为准。参考资料与当前实现冲突时，先记录差异并确认，不静默照搬。
 
 ## 7. 文档地图
 
@@ -62,7 +62,7 @@
 |---|---|---|
 | `AGENTS.md` | 工作规范 | 流程变化，需用户确认 |
 | `README.md` | 安装、工具、配置、行为与限制 | 任何相关实现变化 |
-| `docs/PROGRESS.md` | 跨会话状态锚点 | 每轮结束 |
-| `docs/sessions/` | 方案、规格和收尾证据 | 每轮非平凡变更 |
+| `../sirius-progress/whale/docs/PROGRESS.md` | 跨会话状态锚点 | 每轮结束 |
+| `../sirius-progress/whale/docs/sessions/` | 方案、规格和收尾证据 | 每轮非平凡变更 |
 | `notes/` | 调查、真机现象和专题分析 | 有独立调查结论时 |
 | `test/fixtures/` | 聊天等回归语料 | 判分规则或已知边界变化 |

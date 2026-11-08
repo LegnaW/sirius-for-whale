@@ -14,7 +14,7 @@ sirius_walk、core.walk 和 core.dig_to 默认按方块格验收到达。显式�
 
 内置插件用法见 [sirius-builtins](skills/sirius-builtins/SKILL.md)；自定义插件开发见 [sirius-plugin-development](skills/sirius-plugin-development/SKILL.md)。
 
-开发规范见 [AGENTS.md](AGENTS.md)；当前进度与验证状态见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+开发规范见 [AGENTS.md](AGENTS.md)；当前进度与验证状态见私有集中仓库 [sirius-progress/whale](https://github.com/LegnaW/sirius-progress/tree/main/whale)。
 
 感谢 Kimi K3.1 Pro 提供的技术帮助！
 core.gather 使用 from/to 两个角点（包含端点，顺序任意），blocks 必填，可用非空方块 ID 数组筛选。只有显式 blocks:"all" 才采集区域内全部可破坏的非空气方块；缺失、空数组和空字符串都会拒绝执行。allow_other_blocks 默认 false，开启后可破坏通往目标的沿途障碍。逐轮重扫，直到无进展、达到可选 max_blocks 或超时；默认采集全部目标。单次最多 4096 格，timeout_ms 默认 180000，最多 280000。collected 是完整背包正增量，inventory_delta 包含正负变化。remaining 和 scan 报告残余目标及未知范围，uncollected 依据玩家附近的可见实体。旧版 x/y/z/range 调用继续兼容。
